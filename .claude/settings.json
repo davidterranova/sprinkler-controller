@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; root=\"${CLAUDE_PROJECT_DIR:-$PWD}\"; case \"$f\" in \"$root\"/README.md|\"$root\"/docs/*.md) \"$root/scripts/publish-docs.sh\";; esac; }",
+            "timeout": 120,
+            "statusMessage": "Publishing documentation to MinIO..."
+          }
+        ]
+      }
+    ]
+  }
+}
