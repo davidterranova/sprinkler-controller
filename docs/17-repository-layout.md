@@ -44,10 +44,10 @@ eventually drift from the shipped logic. Making the core a config-less ESPHome c
 copy** compiled by both the host tests and the device build. Its `__init__.py` declares an empty
 schema and generates nothing.
 
-**Direct GPIO for all eight zones, not the PCF8574.** The guard can only hard-close pins it writes
-itself; behind an I²C expander its raw sweep would cover the master valve and nothing else — and an
-I²C lock-up is exactly when you want that sweep. The expander's main argument is removing the GPIO12
-hazard, and none of the eight wired pins is a strapping pin, so it does not arise. See the as-wired
-note in [§7](05-hardware.md#pin-map).
+**Direct GPIO for all eight zones.** The guard can only hard-close pins it writes itself, so every pin
+that can reach a relay coil is one it owns — which is what makes its raw sweep worth having in the
+case it exists for, where the main loop is hung. None of the eight wired pins is a strapping pin, so
+the GPIO12 hazard does not arise in the firmware. See the as-wired note in
+[§7](05-hardware.md#pin-map).
 
 ---

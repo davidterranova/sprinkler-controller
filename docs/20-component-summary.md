@@ -16,8 +16,8 @@ bench tooling excluded.
 | | € TTC |
 |---|---|
 | **Mandatory total** | **1 535** |
-| Optional total (everything below) | 286 |
-| **Recommended build** | **1 821** |
+| Optional total (everything below) | 276 |
+| **Recommended build** | **1 811** |
 
 ---
 
@@ -76,7 +76,7 @@ bench tooling excluded.
 
 ---
 
-# Optional — €286 total
+# Optional — €276 total
 
 Grouped by what each group actually buys, so you can price them independently.
 
@@ -95,10 +95,9 @@ Grouped by what each group actually buys, so you can price them independently.
 
 > Both are *provisions*, not instruments. Full current sensing later is ~€15, a pressure transducer ~€20.
 
-## 3. Wiring quality and serviceability — €30
+## 3. Wiring quality and serviceability — €20
 
 - [ ] **€20** · **Cable management** — trunking, spiral wrap *(G3)* — The difference between a box you're willing to open and one you dread.
-- [ ] **€10** · **2 × PCF8574 I²C expander** *(B2)* — Drives the 8 zone relays over I²C instead of 8 GPIOs. **Be clear-eyed: its safety contribution here is near zero.** It buys elimination of the GPIO12 boot-brick hazard, half the wiring, and 11 spare pins.
 
 ## 4. Survive a component failure mid-season — €15
 
@@ -110,7 +109,7 @@ Grouped by what each group actually buys, so you can price them independently.
 
 ## 6. Let someone water the garden without a phone — €70
 
-- [ ] **€70** · **8 × Ø22 momentary buttons + master switch + status LED** *(FR-11)* — Lets a house-sitter or family member run a zone or hold the system with no HA access. **Wired as inputs to the firmware, never straight to a valve** — so a press inherits the duration cap, the interlock and the whole safety layer. Uses the second PCF8574 the BOM already has you buying. Schneider XB5AA21 €6.92 each **[V]**, or Gotronic BP16039 16 mm at €4.50 for a ~€45 build.
+- [ ] **€70** · **8 × Ø22 momentary buttons + master switch + status LED** *(FR-11)* — Lets a house-sitter or family member run a zone or hold the system with no HA access. **Wired as inputs to the firmware, never straight to a valve** — so a press inherits the duration cap, the interlock and the whole safety layer. ⚠️ **The input path is unresolved** — nine inputs do not fit the three spare GPIOs, so this needs its own answer before it is bought. Schneider XB5AA21 €6.92 each **[V]**, or Gotronic BP16039 16 mm at €4.50 for a ~€45 build.
 
 > The *dead-controller* case is covered by the **manual bypass ball valve** already in the mandatory
 > list, not by these switches — if the ESP32 is dead, no button helps.
@@ -123,7 +122,7 @@ Nothing to acquire; one thing to verify.
 
 | § | Component | Verdict |
 |---|---|---|
-| B4 | Level shifter | **Not needed.** Run the whole I²C bus at 3.3 V — the PCF8574 is spec'd 2.5–6 V, and 5 V would put 5 V on SDA/SCL where **ESP32 pins are not 5 V tolerant**. Buying one would *add* a latent-damage path, not remove one. |
+| B4 | Level shifter | **Not needed.** Run the whole I²C bus at 3.3 V — the DS3231 is spec'd 2.3–5.5 V and is happy there, whereas 5 V would put 5 V on SDA/SCL where **ESP32 pins are not 5 V tolerant**. Buying one would *add* a latent-damage path, not remove one. |
 | B7 | Wired Ethernet | **Not in v1.** LAN8720 is **pin-incompatible** with the pin map (RMII takes GPIO21/22 = I²C, and the clock workaround takes GPIO17 = master valve). W5500-over-SPI works but buys reliability the design explicitly doesn't depend on (P3b). |
 | H1/H2 | Buried valve multicore, conduit, gel splices | **€0 under T-INDOOR** — this is the ~€620 that moving the manifold indoors deletes outright, and with it risk R10. Under T-GARDEN it comes back. |
 

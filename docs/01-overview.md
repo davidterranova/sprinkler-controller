@@ -56,9 +56,9 @@ These resolve dozens of small arguments later, so they are stated first.
        observation only)    │  └──┬─────────┬──┘       │             │
                             │     │         │          │             │
                             │  ┌──▼──────┐  │   ┌──────▼──────────┐  │
-                            │  │PCF8574  │  └──▶│ DEADMAN gate    │  │
-                            │  │I²C exp. │      │ + LATCHING      │  │
-                            │  │→ 9 relay│      │   max-run timer │  │
+                            │  │ 9 relay │  └──▶│ DEADMAN gate    │  │
+                            │  │ channels│      │ + LATCHING      │  │
+                            │  │ direct  │      │   max-run timer │  │
                             │  └──┬──────┘      │ + NC kill loop  │  │
                             │     │  dry ctcts  └──────┬──────────┘  │
                             │     └──────────────◀─────┘             │
