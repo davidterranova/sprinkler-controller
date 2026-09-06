@@ -13,8 +13,8 @@ and the enclosure/cable assumptions in `docs/04-non-functional-requirements.md` 
 | | |
 |---|---|
 | **Minimal** | **≈ €688** — works, but buys a meter that cannot detect a leak and a latch that clears on a power cut. Two of its lines are *dangerous*, not merely thin. |
-| **⭐ Recommended** | **≈ €1 751** — the build I would put in. 40 % hydraulics, 21 % power+enclosure, 15 % sensors, **9 % safety layer**, 6 % spares, 0 % trenching. |
-| **Robust** | **≈ €3 433** — and ~€690 of that is two components I actively recommend against. Substitute those and it is ~€2 870 for comfort, not for additional P0 coverage. |
+| **⭐ Recommended** | **≈ €1 741** — the build I would put in. 40 % hydraulics, 21 % power+enclosure, 15 % sensors, **9 % safety layer**, 6 % spares, 0 % trenching. |
+| **Robust** | **≈ €3 423** — and ~€690 of that is two components I actively recommend against. Substitute those and it is ~€2 870 for comfort, not for additional P0 coverage. |
 
 **Top five recommendations, in order of how much they matter:**
 
@@ -57,7 +57,7 @@ Where a supplier quotes HT I say so, because the €/HT gap is 20 % and it disto
 > ⚠️ **New this month, and it changes small-parts sourcing.** The EU's €150 customs-duty exemption
 > ended **1 July 2026**. A **flat €3 customs duty now applies *per item*** (not per parcel) on
 > non-EU consignments up to €150, until 1 July 2028, on top of VAT. **[V — European Commission,
-> DG TAXUD guidance, 2026-06-08]** Practical effect: a €1.50 PCF8574 from AliExpress now lands at
+> DG TAXUD guidance, 2026-06-08]** Practical effect: a €1.50 74HCT14 from AliExpress now lands at
 > roughly €1.50 + €3 duty + VAT ≈ **€5.40**. **AliExpress is no longer the cheap option for
 > individual cheap parts.** Buy small electronics as *one* multi-part order from an EU stockist
 > (Mouser FR, Reichelt, TME, Amazon.fr) or accept the €3/item. This is not in the spec and it
@@ -109,7 +109,7 @@ that price. See §E1.
 option outright.** The classic ESP32 **does contain an Ethernet MAC (EMAC)**; it lacks only a PHY
 **[V — ESP-IDF Ethernet programming guide]**. But the RMII interface to a LAN8720 consumes
 **GPIO 0, 19, 21, 22, 25, 26, 27** **[V — esphome-docs `ethernet.rst`]** — which collides head-on
-with this project's **I²C bus on GPIO21/22** (DS3231 + PCF8574), and the standard GPIO0-clock
+with this project's **I²C bus on GPIO21/22** (DS3231), and the standard GPIO0-clock
 workaround pushes the 50 MHz clock out on **GPIO17**, which is the **master valve** pin.
 **LAN8720 is not merely awkward here, it is pin-incompatible with the published pin map.** A
 **W5500 over SPI** is supported by ESPHome and needs ~5 pins from the 11 spares — that is the only
@@ -516,42 +516,6 @@ for about €4.
 > separate feed** and its input from **GPIO17 direct**. If it shares a 5 V wire with the 8-channel
 > board you have paid €4 for nothing.
 
-### B2. PCF8574 I²C I/O expander — **OPTIONAL, and the honest reason to buy it is not safety**
-
-**Role.** Drives the 8 zone relay inputs over I²C instead of 8 GPIOs.
-
-**Optional — what you lose by skipping it:** nothing safety-relevant. **Say this plainly, because the
-spec is unusually candid about it and it is worth preserving:** on this hardware the expander's
-contribution to P0 is close to zero. The active-low relay board plus the verified fact that the
-ESP32's *"pins are output-disabled during reset"* already gives relay-OFF at cold boot, and the
-expander **does not help in the case that actually matters** — on a CPU reset (R1) its output latch
-survives exactly as a GPIO does, because it has no reset pin either. **The deadman is what delivers
-P0.** Skipping the expander is defensible; skipping the deadman is not.
-
-**The real reason to fit it** is that **every relay `IN` line carries a 1 kΩ pull-up, and on GPIO12
-(MTDI) that holds a strapping pin high at reset, selects a 1.8 V VDD_SDIO, browns out the 3.3 V flash,
-and the board will not boot or flash.** Nine strong pull-ups on nine ESP32 pins is nine chances to
-make that mistake — including a future you rewiring the box with cold hands. The expander reduces
-that to one pin-map decision made once. It also halves the wiring.
-
-| | Product | Price |
-|---|---|---|
-| **Minimal** | Skip it — zones direct on GPIO **32, 33, 25, 26, 27, 23, 19, 18**, master 17, deadman 13. **Never use GPIO 0, 1, 2, 3, 5, 6–11, 12, 15.** | **€0** |
-| **Recommended** | **1 × PCF8574 breakout module** with address jumpers (set 0x20), `inverted: true`, **at 3.3 V** — plus a **second as a spare** | **~€8–12 for two [E]** |
-| **Robust** | A **PCF8574AN DIP-16 IC** on the same perfboard as the deadman, socketed, with proper 4.7 kΩ bus pull-ups — est. **€1.20–2.00 excl. VAT at Mouser.fr / Reichelt [E]** | ~€5 for two + socket [E] |
-
-> **My pick: Recommended.** Take it for ~€5, for the GPIO12 hazard and the wiring, and be clear-eyed
-> that it is an ergonomics purchase, not a safety one. **Keep the master on a direct GPIO** so the two
-> halves of the AND gate fail independently: an I²C lock-up — a slave holding SDA low, a real event in
-> a box that also contains a 24 VAC inductive load — still leaves the firmware able to close the
-> master and stop all water.
->
-> **Two hard constraints on the drive current, both from the spec and both correct:** if bench test T4
-> shows the 3.3 V drive is marginal, change the board's R1 from 1 kΩ to **470 Ω (≈4.4 mA)** — **not**
-> the 220 Ω some vendor notes suggest, because nine channels at 9.8 mA would push **88 mA through the
-> PCF8574's ground pin against a ±100 mA absolute maximum**. And **do not drive the relays through a
-> ULN2003** — it inverts the polarity into all-relays-on.
-
 ### B3. Real-time clock — **MANDATORY**, and **the spec's part choice should change**
 
 **Role.** FR-1.3: wall-clock time from a battery-backed RTC, storing **UTC**, with SNTP as an
@@ -620,8 +584,8 @@ row 6 says an untrusted clock **refuses all scheduled runs** — so the RTC is w
 
 **Role it would play:** none, if you design correctly.
 
-A PCF8574 at 5 V has V_IH ≈ 0.7 × V_CC = **3.5 V**, which is *above* a 3.3 V ESP32's output high —
-marginal and out of spec. **But the PCF8574, the DS3231 and the PCF85063 all run happily at 3.3 V**,
+An I²C device run at 5 V has V_IH ≈ 0.7 × V_CC = **3.5 V**, which is *above* a 3.3 V ESP32's output high —
+marginal and out of spec. **But the DS3231 and the PCF85063 both run happily at 3.3 V**,
 so **powering the entire I²C bus at 3.3 V removes the boundary entirely** and simultaneously disarms
 the ZS-042 charging trap (§B3). That is the design.
 
@@ -665,9 +629,11 @@ a parcel arrives. In August. **Est. €12–18 Amazon.fr / €4–7 AliExpress [
 
 > **My pick: buy one spare, Amazon.fr, ~€15.** But **buy it only after T1/T3/T4 pass on the board you
 > own**, and then **buy the identical model** — the tests characterise a *specific* board, and
-> "high/low trigger selectable" variants exist in the wild where a jumper inverts everything and a
-> PCF8574's power-on-high state **energises all eight relays**. A spare of a different variant is not
-> a spare, it is a trap.
+> "high/low trigger selectable" variants exist in the wild where a jumper inverts everything and the
+> board's own input pull-ups **energise every relay the instant power comes up**. A spare of a
+> different variant is not a spare, it is a trap.
+>
+> **Do not drive the relays through a ULN2003** — it inverts the polarity into all-relays-on.
 
 ### B7. Wired Ethernet (D15 asks) — **OPTIONAL. Verdict: not in v1.**
 
@@ -974,7 +940,7 @@ holding at 50 Hz [V — Hunter spec sheet]**, not the 475 mA / 11.4 VA in NFR-P2
 
 ### D2. 5 V DC logic supply — **MANDATORY. Never USB.**
 
-**Role.** Powers the ESP32, the relay coils, the expander, the RTC and the deadman.
+**Role.** Powers the ESP32, the relay coils, the RTC and the deadman.
 
 **Budget:** 9 × SRD-05VDC-SL-**C** relay coils at 71.4 mA = 643 mA (or the -**D** variant at 89.3 mA =
 804 mA — **verification item E5, read the relay can**), plus the ESP32 at ~250 mA peak on Wi-Fi TX,
@@ -1798,7 +1764,6 @@ existing ESP32 + 8-ch relay board at €0 (D2); **all labour at €0 (D13)**; **
 | A7 | DN25 tie-in + fittings | 30 [V] | **70** [V] | 170 *(+ RBM reducer €99.80)* [V] |
 | A8 | PE pipe *(T-INDOOR, D=20 m)* | 200 [V] | **290** *(mixed Ø32/Ø25)* [V] | 390 [V] |
 | **B1** | 9th-channel relay module | 6 [E] | **16** *(2, Amazon.fr)* [E] | 16 [E] |
-| B2 | PCF8574 | 0 *(direct GPIO)* | **10** *(×2)* [E] | 10 [E] |
 | B3 | RTC | 5 *(ZS-042)* [E] | **12** *(PCF85063A €3.95 + DS3231 €7.90)* [V] | 15 *(Adafruit #5188)* [V] |
 | B5 | Spare ESP32 | 9 [E] | **20** *(3-pack)* [E] | 20 [E] |
 | B6 | Spare 8-ch relay board | 0 | **15** [E] | 15 [E] |
@@ -1825,7 +1790,7 @@ existing ESP32 + 8-ch relay board at €0 (D2); **all labour at €0 (D13)**; **
 | **I** | Spares (NFR-L2) | 40 [V] | **105** [V] | 135 [V] |
 | **K** | Future-tank provisions | 12 [V] | **25** [V] | 25 [V] |
 | **J2** | Bench rig (LEDs + analyser) | 20 [E] | **40** [E] | 40 [E] |
-| | **TOTAL** | **≈ €688** | **≈ €1 751** | **≈ €3 433** |
+| | **TOTAL** | **≈ €688** | **≈ €1 741** | **≈ €3 423** |
 
 ### Where the money actually goes in the recommended build
 
@@ -1836,15 +1801,15 @@ existing ESP32 + 8-ch relay board at €0 (D2); **all labour at €0 (D13)**; **
 | Sensors (§E, §F) — meter, rain gauge, temp, pressure | 269 | 15 % |
 | **Safety layer (§C) — deadman, latching backstop, kill switch** | **160** | **9 %** |
 | Spares held on site (§I) | 105 | 6 % |
-| Control electronics (§B) | 73 | 4 % |
+| Control electronics (§B) | 63 | 4 % |
 | Bench rig (§J2) | 40 | 2 % |
 | Provisions (§K) | 25 | 1 % |
 | **Cable and trenching (§H)** | **0** | **0 %** |
-| **Total** | **1 751** | |
+| **Total** | **1 741** | |
 
 > ### The three things this table says
 >
-> 1. **The recommended build is ≈ €1 751 TTC, against the spec's indicative ~€1 200** — but that
+> 1. **The recommended build is ≈ €1 741 TTC, against the spec's indicative ~€1 200** — but that
 >    figure *excluded* trenching and labour, and never actually costed the cable, the valve boxes or
 >    the safety layer. The ~€550 gap is almost entirely four lines that were absent rather than
 >    underestimated: **§A8 pipe €290** (a T-INDOOR consequence, offset by €0 in §H), **§F1 rain gauge
@@ -1860,7 +1825,7 @@ existing ESP32 + 8-ch relay board at €0 (D2); **all labour at €0 (D13)**; **
 >    latching backstop €105. **There is no defensible version of this project that economises here**,
 >    and at 9 % there is no pressure to.
 
-**Robust is deliberately absurd in two places and you should not read the €3 433 as a real option:**
+**Robust is deliberately absurd in two places and you should not read the €3 423 as a real option:**
 €388 of it is a Socla BA2860 disconnecteur that **D12 may well say you do not need**, and €300 is a
 Preventa safety relay that solves the wrong problem. **Substitute the recommended items for those two
 and "Robust" falls to ≈ €2 870** — which is still more than I would spend, and the delta over
@@ -1882,16 +1847,15 @@ policy on LEDs, before any water exists.**
 | **8-ch USB logic analyser** (§J2) — for E6, the deadman decay | 10 |
 | **Deadman discretes ×2 builds** (§C1) — SN74HCT14N ×5, BAT85 ×6, 2N7000, G2RL-1-E DC5 ×2, perfboard, CNMB carrier, R/C kits | 38 |
 | **RTC: PCF85063A €3.95 + DS3231 GT584 €7.90 + 5 × CR2032** (§B3) | 14 |
-| **PCF8574 ×2** (§B2) | 10 |
 | **2-channel relay module ×2** (§B1) | 16 |
 | **Spare ESP32 3-pack** (§B5) | 20 |
 | **5 V DIN SMPS — HDR-15-5** (§D2) | 16 |
 | **DS18B20 + AHT20** (§F2) | 13 |
 | Optocouplers, pull-ups, misc (§E2) | 3 |
-| **≈ Total** | **≈ €160** |
+| **≈ Total** | **≈ €150** |
 
 > **Do this first, and consolidate it into one Gotronic/Reichelt order and one DigiKey order** — the
-> §J1 note about €25 DigiKey shipping under €75 is the difference between €160 and €185.
+> §J1 note about €25 DigiKey shipping under €75 is the difference between €150 and €175.
 >
 > **Two of these are gating, not merely useful.** **T3** (*do the relays stay off with the inputs
 > floating?*) is described in the spec as *"the single most important test in the project"* and it can
