@@ -125,8 +125,15 @@ TEST(a_program_is_due_at_its_start_minute) {
   Plan plan;
   EXPECT_TRUE(resolve(s, st, at(2026, 6, 10, 5, 0), {60}, &plan) == DueResult::DUE);
   EXPECT_EQ(plan.count, 2);
-  EXPECT_EQ(plan.entries[0].seconds, 600);
-  EXPECT_EQ(plan.entries[1].seconds, 1200);
+
+  // Asserted as a zone -> duration mapping rather than by position: with the
+  // default equal priorities the plan ROTATES daily (FR-4.5), so a positional
+  // assertion here would encode the very behaviour the rotation defeats.
+  uint16_t seconds_for[MAX_ZONES] = {};
+  for (uint8_t i = 0; i < plan.count; i++)
+    seconds_for[plan.entries[i].zone] = plan.entries[i].seconds;
+  EXPECT_EQ(seconds_for[0], 600);
+  EXPECT_EQ(seconds_for[1], 1200);
 }
 
 TEST(a_program_is_not_due_before_its_start_minute) {
@@ -302,6 +309,86 @@ TEST(priority_orders_the_plan_and_rotation_never_overrides_it) {
   EXPECT_TRUE(zone0_seen_second);
   EXPECT_TRUE(zone2_seen_second);
   EXPECT_TRUE(zone3_seen_second);
+}
+
+// ---------------------------------------------------------------------------
+//  Eight zones -- the full width of the compile-time bound
+// ---------------------------------------------------------------------------
+
+static Schedule eight_zone_schedule() {
+  Schedule s = default_schedule(MAX_ZONES);
+  Program &p = s.programs[0];
+  p.enabled = true;
+  p.start_minute = 5 * 60;
+  p.days.weekday_mask = 0x7F;
+  p.repeats = 1;
+  for (uint8_t z = 0; z < MAX_ZONES; z++)
+    p.zone_minutes[z] = 10 + z;  // distinguishable, so a mis-indexed zone shows up
+  return s;
+}
+
+TEST(a_full_width_eight_zone_plan_resolves_with_every_zone_intact) {
+  tz_set(PARIS);
+  const Schedule s = eight_zone_schedule();
+  EXPECT_TRUE(validate(s).ok());
+
+  RunState st;
+  st.reset();
+  Plan plan;
+  EXPECT_TRUE(resolve(s, st, at(2026, 6, 10, 5, 0), {60}, &plan) == DueResult::DUE);
+  EXPECT_EQ(plan.count, MAX_ZONES);
+
+  // Every zone appears exactly once, and each carries ITS OWN duration -- the
+  // property an off-by-one in the plan builder would break silently.
+  bool seen[MAX_ZONES] = {};
+  for (uint8_t i = 0; i < plan.count; i++) {
+    const uint8_t zone = plan.entries[i].zone;
+    EXPECT_FALSE(seen[zone]);
+    seen[zone] = true;
+    EXPECT_EQ(plan.entries[i].seconds, (10 + zone) * 60);
+  }
+  for (uint8_t z = 0; z < MAX_ZONES; z++)
+    EXPECT_TRUE(seen[z]);
+}
+
+TEST(eight_zones_rotate_through_every_starting_position_in_eight_days) {
+  // FR-4.5: the same zone must not always be last. With eight equal-priority
+  // zones the rotation should visit all eight starting positions before it
+  // repeats.
+  tz_set(PARIS);
+  const Schedule s = eight_zone_schedule();
+  RunState st;
+  st.reset();
+  Plan plan;
+
+  bool first_seen[MAX_ZONES] = {};
+  for (int d = 0; d < MAX_ZONES; d++) {
+    EXPECT_TRUE(resolve(s, st, at(2026, 6, 10 + d, 5, 0), {60}, &plan) == DueResult::DUE);
+    first_seen[plan.entries[0].zone] = true;
+  }
+  for (uint8_t z = 0; z < MAX_ZONES; z++)
+    EXPECT_TRUE(first_seen[z]);
+}
+
+TEST(a_zone_with_zero_minutes_is_wired_but_never_planned) {
+  // The whole basis for declaring eight zones while only four are planted:
+  // hardware presence and schedule membership are separate questions.
+  tz_set(PARIS);
+  Schedule s = eight_zone_schedule();
+  for (uint8_t z = 4; z < MAX_ZONES; z++)
+    s.programs[0].zone_minutes[z] = 0;
+
+  RunState st;
+  st.reset();
+  Plan plan;
+  EXPECT_TRUE(resolve(s, st, at(2026, 6, 10, 5, 0), {60}, &plan) == DueResult::DUE);
+  EXPECT_EQ(plan.count, 4);
+  for (uint8_t i = 0; i < plan.count; i++)
+    EXPECT_TRUE(plan.entries[i].zone < 4);
+
+  // And it stays true even though the zone is `enabled` -- enabled means "this
+  // zone exists and may be used", not "water it".
+  EXPECT_TRUE(s.zone_enabled[7]);
 }
 
 // ---------------------------------------------------------------------------
