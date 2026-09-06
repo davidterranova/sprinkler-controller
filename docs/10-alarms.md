@@ -28,6 +28,44 @@ HA triggers on the flag); config edited but never applied; **rain feed gone stal
 automation is broken); nothing watered in N days in season; month-on-month or year-on-year volume
 anomaly (only HA has the long-term statistics).
 
+## From detection to acknowledgement
+
+The two tables say what is detected and by whom. This says what an alarm then *does* — and in
+particular why a `CRITICAL` cannot clear itself.
+
+```mermaid
+flowchart TD
+    DETECT(["The device detects a condition:<br/>flow window, guard timer, current sense, counters, clock"])
+    SEV{"Severity"}
+    SOFT["<b>INFO / WARNING</b> — publish it, and act if the row says so<br/>(abort the zone, suspend for freeze). A WARNING never locks anything out"]
+    ACT["<b>CRITICAL</b> — close the zone now, and close the master<br/>whenever water is flowing uncontrolled"]
+    LATCH["latch_critical(): abort the run in progress, phase → IDLE, latch persisted"]
+    SCOPE{"Scope"}
+    ZONE["lock_out_zone() — that zone alone refuses to start, ZONE_LOCKED_OUT.<br/>The other seven keep watering"]
+    SYS["System-wide — every start is refused, LOCKED_OUT, except<br/><b>one</b> bounded diagnostic run (FR-9.3) so a repair can be tested<br/>without disabling the alarm system"]
+    ACK["<b>acknowledge()</b> — explicit and attributed. Clears the latch, the zone mask,<br/>the diagnostic allowance and the crash-loop brake"]
+    NORMAL(["Back to normal. Nothing here ever self-clears"])
+    HA(["HA interprets and notifies — time-sensitive urgency<br/>only where water is actively being wasted"])
+
+    DETECT --> SEV
+    SEV -->|"INFO / WARNING"| SOFT
+    SEV -->|"CRITICAL"| ACT
+    ACT --> LATCH
+    LATCH --> SCOPE
+    SCOPE -->|"one zone"| ZONE
+    SCOPE -->|"loss of control authority"| SYS
+    ZONE --> ACK
+    SYS --> ACK
+    ACK --> NORMAL
+    SOFT --> HA
+    NORMAL --> HA
+```
+
+**The asymmetry is deliberate.** A `WARNING` costs a dead plant; a `CRITICAL` is the class of fault
+that wastes water without supervision, so it latches and requires a human to say "I have looked". The
+one concession is the single diagnostic run — *a system that must be disabled to be repaired will be
+disabled permanently.*
+
 ## Alarm fatigue is the real risk
 
 Only genuine **loss of control authority** is `CRITICAL`. `WARNING` never locks out. Reserve

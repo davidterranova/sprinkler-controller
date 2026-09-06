@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Runs first and takes about a second: the resolver's DST table, the state
+  # machine, the guard arithmetic and a full simulated season, all on the host
+  # with no toolchain and no container. If this is red, nothing else matters.
+  host-tests:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: make test
+        run: make test
+
+  gates:
+    name: Source gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # irrigation_core must stay free of ESPHome includes -- that is what
+      # makes it testable above.
+      - name: Purity gate
+        run: make purity-gate
+      # No save() in a pulse path: 476 pulses/L at 500 L/day would be 238 000
+      # flash writes a day and would destroy the flash in ~52 days.
+      - name: Flash-write gate
+        run: make flash-write-gate
+
+  firmware:
+    name: ESPHome validate and compile
+    runs-on: ubuntu-latest
+    needs: [host-tests, gates]
+    steps:
+      - uses: actions/checkout@v4
+
+      # sprinkler.yaml reads Wi-Fi/API/OTA credentials via !secret from
+      # secrets.yaml, which is gitignored and never committed. These values are
+      # placeholders good enough for validation only -- nothing here needs to be
+      # a real credential. sprinkler_api_key still has to decode as a base64
+      # 32-byte key, since ESPHome validates that shape.
+      - name: Create placeholder secrets.yaml
+        run: |
+          cat > secrets.yaml <<'EOF'
+          wifi_ssid: "placeholder"
+          wifi_password: "placeholder"
+          sprinkler_api_key: "bK1YlLBsY0Ouxeekl8eHkLoQ6TORbg4RbocsLsXDqvQ="
+          sprinkler_ota_password: "placeholder"
+          sprinkler_latitude: "0.0"
+          sprinkler_longitude: "0.0"
+          sprinkler_timezone: "Europe/Paris"
+          EOF
+
+      - name: make validate
+        run: make validate
+
+      # `validate` only checks schemas. The lambdas in packages/ui.yaml are raw
+      # C++ and are compiled for the first time here, so a full compile is the
+      # only thing that proves the config actually builds.
+      - name: make build
+        run: make build

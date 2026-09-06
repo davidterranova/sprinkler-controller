@@ -20,6 +20,22 @@ Hold/Pause/Stop as three verbs. **Dry-run mode with time acceleration.**
 **Exit criteria:** every row of [§5](03-fault-policy.md) has a demonstrated, recorded behaviour;
 unit tests green including DST; a simulated season runs unattended.
 
+> ### Status — 2026-09-05: **built, not yet proven on hardware**
+>
+> | Exit criterion | State |
+> |---|---|
+> | Unit tests green including DST | ✅ **61 tests**, ~0.2 s, no toolchain needed. The DST table walks both 2026 transition days minute by minute and asserts each program fires **exactly once** — the case an edge-triggered cron gets wrong twice a year. Plus leap day, the 31st/1st boundary, and new year. |
+> | A simulated season runs unattended | ✅ 1 March → 31 October at one-minute ticks, 131 injected reboots, a holiday hold, a latched CRITICAL and a winter switch, asserting invariants continuously. **It found a real bug** — see the changelog. |
+> | Every row of [§5](03-fault-policy.md) demonstrated | ⏳ The firmware side is written and compiles; the demonstrations are a checklist in **[§21](21-bench-procedure.md)**. Rows 7–9 and 11 are **deferred to v1** — they need a flow meter and coil current sensing, neither of which exists on a bench. |
+>
+> **Four zones, not eight** (owner's call, 2026-09-05). `MAX_ZONES` stays 8, so growing is a YAML edit
+> and a schema-version bump rather than a struct-layout migration.
+>
+> **Two hardware items still gate connecting anything to water:** the relay board's T1/T3/T4 bench
+> tests (E1–E3), and **E6** — proving the deadman de-energises the rail under a *deliberately hung*
+> firmware. The firmware carries the instrumentation for E6 (a button that hangs the main loop on
+> purpose); the circuit it is meant to exercise has not been built.
+
 ## v1 — Minimum viable garden
 
 The ten requirements, safely, with the ambiguities resolved by explicit decision. 8 N/C zone valves + 1

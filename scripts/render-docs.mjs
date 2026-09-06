@@ -1,6 +1,8 @@
 // Renders the specification (README.md + docs/*.md) into self-contained HTML
-// pages for mobile reading. No network at render time or read time: marked is
-// vendored, CSS is inlined.
+// pages for mobile reading. No network at render time, and none at read time
+// either except on the few pages carrying a ```mermaid diagram, which fetch a
+// version-pinned, SRI-checked mermaid from a CDN and stay readable without it:
+// marked is vendored, CSS is inlined.
 //
 //   node scripts/render-docs.mjs <outdir> <file.md>...
 //
@@ -62,10 +64,18 @@ function rewriteLinks(html, rootRel) {
   })
 }
 
+// GitHub renders ```mermaid fences natively, so the markdown sources stay the
+// single copy of every diagram. Here the fence becomes a <pre class="mermaid">
+// that the mermaid runtime replaces with an SVG — and if that script never
+// loads (offline, blocked CDN), the <pre> still shows the diagram source, which
+// is the reason for rendering to a <pre> rather than to an empty <div>.
+let sawMermaid = false
+
 function render(input) {
   const rel = outputPath(input)
   const rootRel = '../'.repeat(rel.split('/').length - 1)
   const slugify = makeSlugger()
+  sawMermaid = false
 
   marked.use({
     gfm: true,
@@ -73,6 +83,11 @@ function render(input) {
       heading(text, level, raw) {
         const id = slugify(raw)
         return `<h${level} id="${id}"><a class="anchor" href="#${id}" aria-hidden="true">#</a>${text}</h${level}>\n`
+      },
+      code(code, infostring) {
+        if ((infostring ?? '').trim().split(/\s+/)[0] !== 'mermaid') return false
+        sawMermaid = true
+        return `<pre class="mermaid">${escapeHtml(code)}</pre>\n`
       },
     },
   })
@@ -94,11 +109,34 @@ function render(input) {
   const generated = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   const out = join(outdir, rel)
   mkdirSync(dirname(out), { recursive: true })
-  writeFileSync(out, page({ title, body, source: input, generated, rootRel }), 'utf8')
+  writeFileSync(out, page({ title, body, source: input, generated, rootRel, mermaid: sawMermaid }), 'utf8')
   return rel
 }
 
-const page = ({ title, body, source, generated, rootRel }) => `<!doctype html>
+// Pinned to an exact version with a subresource-integrity hash, so the browser
+// refuses anything but the bytes this was written against. Only pages that
+// actually contain a diagram pay for it.
+const MERMAID_SRC = 'https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js'
+const MERMAID_SRI = 'sha384-EOXBFmc3gx5mb+vn0vPvvGqACToJD24hhacX5Yx+8NUUQrHIle/Qi5Bg9o3zKwW2'
+
+const mermaidScript = `<script src="${MERMAID_SRC}" integrity="${MERMAID_SRI}" crossorigin="anonymous"></script>
+<script>
+// Guarded: if the script above failed to load, every diagram stays readable as
+// its own source text instead of the page breaking.
+if (globalThis.mermaid) {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: 'strict',
+    theme: dark ? 'dark' : 'default',
+    // Default is 200 px, which re-wraps labels that already carry their own
+    // line breaks and makes a tall chart twice as tall again.
+    flowchart: { wrappingWidth: 360 },
+  })
+}
+</script>`
+
+const page = ({ title, body, source, generated, rootRel, mermaid }) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -154,6 +192,15 @@ pre {
   overflow-x: auto; -webkit-overflow-scrolling: touch;
 }
 pre code { padding: 0; background: none; }
+/* A diagram is a figure, not a listing: no code chrome, and it centres on the
+   page. Before mermaid replaces it (or if mermaid never loads) it is still the
+   diagram source, so it keeps the monospace font and the horizontal scroll. */
+pre.mermaid {
+  background: none; padding: 0; text-align: center;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .8rem; line-height: 1.4;
+}
+pre.mermaid svg { max-width: 100%; height: auto; }
 hr { height: 1px; margin: 2rem 0; border: 0; background: var(--border); }
 mark { background: var(--mark); color: inherit; }
 /* Wide spec tables scroll sideways rather than squeezing the page. */
@@ -187,6 +234,7 @@ ${body}
 const btn = document.getElementById('top')
 addEventListener('scroll', () => btn.classList.toggle('show', scrollY > 800), { passive: true })
 </script>
+${mermaid ? mermaidScript : ''}
 </body>
 </html>
 `

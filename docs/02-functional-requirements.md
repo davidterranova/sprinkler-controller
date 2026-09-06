@@ -172,6 +172,8 @@ garden or stop it, without a phone.
 
 ## FR-8 — Pause / Hold / Stop
 
+*The two state diagrams in [§8](07-firmware.md#modes-phases-and-the-three-verbs) show why these are three verbs and not one: Hold changes the mode, Pause and Stop change the phase, and Winter does both.*
+
 | ID | Requirement | Origin |
 |---|---|---|
 | FR-8.1 | Three distinct verbs shall exist and be named unambiguously: **Hold** (let the current cycle finish, schedule nothing new), **Pause** (suspend the current run, resumable, with a max-suspend timeout), **Stop** (close everything now, clear the queue, no resume). | **challenges R8** |
@@ -184,7 +186,7 @@ garden or stop it, without a phone.
 
 ## FR-9 — Alarms
 
-See [§11](10-alarms.md) for the full taxonomy.
+See [§11](10-alarms.md) for the full taxonomy and the [detection-to-acknowledgement flow](10-alarms.md#from-detection-to-acknowledgement).
 
 | ID | Requirement | Origin |
 |---|---|---|

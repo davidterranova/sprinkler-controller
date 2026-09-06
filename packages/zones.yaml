@@ -1,0 +1,143 @@
+# =============================================================================
+#  L2 -- the outputs and the stock sequencer
+#
+#  ## Why direct GPIO for the zones in v0, when the design says PCF8574
+#
+#  docs/05-hardware.md recommends an expander for the eight production zones,
+#  and is candid that its contribution to P0 is close to zero: it eliminates the
+#  GPIO12 boot-brick hazard and halves the wiring, but on a CPU reset its output
+#  latch survives exactly as a GPIO does. On the bench there are four zones, no
+#  wiring loom, and one property that matters more: **the guard can only
+#  hard-close pins it can write directly.** Behind an I2C expander the guard's
+#  raw sweep would cover the master valve and nothing else, which is precisely
+#  the wrong trade for the layer that exists to prove fail-closed.
+#
+#  So: direct GPIO on the bench, from the all-direct fallback pin set in the
+#  pin map. When the build grows to eight zones on an expander, the guard's
+#  zone_pins list shrinks to the master and the deadman does the rest -- which
+#  is what the hardware doc already says it does.
+# =============================================================================
+
+switch:
+  # The raw outputs. Internal: Home Assistant drives the *sequencer*, never a
+  # pin. FR-10.1 -- a manual run is "run zone N for M minutes", never "open
+  # zone N", and an exposed pin switch is exactly the unbounded open this
+  # project refuses to offer.
+  #
+  # restore_mode is ALWAYS_OFF on every one of them (FR-3.2): no valve state is
+  # ever restored from persistence, whatever the last power cut interrupted.
+  - platform: gpio
+    id: zone_1_output
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: ${zone_1_pin}
+      inverted: ${relay_active_low}
+      # Shared with irrigation_guard on purpose -- see packages/safety.yaml.
+      allow_other_uses: true
+  - platform: gpio
+    id: zone_2_output
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: ${zone_2_pin}
+      inverted: ${relay_active_low}
+      # Shared with irrigation_guard on purpose -- see packages/safety.yaml.
+      allow_other_uses: true
+  - platform: gpio
+    id: zone_3_output
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: ${zone_3_pin}
+      inverted: ${relay_active_low}
+      # Shared with irrigation_guard on purpose -- see packages/safety.yaml.
+      allow_other_uses: true
+  - platform: gpio
+    id: zone_4_output
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: ${zone_4_pin}
+      inverted: ${relay_active_low}
+      # Shared with irrigation_guard on purpose -- see packages/safety.yaml.
+      allow_other_uses: true
+
+  # The master valve: the series element of the hydraulic AND gate. Watering
+  # requires two independent circuits to both work, which restores fail-closed
+  # even against a welded zone relay.
+  - platform: gpio
+    id: master_output
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: ${master_pin}
+      inverted: ${relay_active_low}
+      # Shared with irrigation_guard on purpose -- see packages/safety.yaml.
+      allow_other_uses: true
+
+sprinkler:
+  - id: sequencer
+    main_switch:
+      name: "Irrigation"
+    auto_advance_switch:
+      name: "Auto advance"
+      internal: true
+    standby_switch:
+      name: "Standby"
+      entity_category: config
+
+    # The settle gap between zones. Five to ten seconds is the hydraulic
+    # requirement -- zone N's diaphragm must be seated and the pressure
+    # recovered before N+1 opens -- but FR-4.3 promotes it to a SAFETY
+    # requirement: it is also what resets the hardware max-runtime backstop
+    # between zones. Verify on the bench (E6) that the timer really does reset
+    # inside this window.
+    valve_open_delay: 10s
+
+    # `valve_overlap` is deliberately absent, so it stays at its default of 0
+    # and the component keeps a single `active_req_` -- FR-4.1, at most one
+    # zone energised at any instant.
+    #
+    # `multiplier_number` and `repeat_number` are deliberately absent too. Both
+    # exist in the stock component and both are traps: multiplier's max of 10
+    # against run_duration's max of 86400 s makes a 240-hour run expressible,
+    # and a multiplier of 0 silently prevents any valve from starting. The
+    # scheduler sets both programmatically from a plan that irrigation_core has
+    # already validated, and neither is reachable from Home Assistant.
+    valves:
+      - valve_switch: "Zone 1"
+        valve_switch_id: zone_1_output
+        enable_switch: "Zone 1 in cycle"
+        run_duration: 900s
+        pump_switch_id: master_output
+      - valve_switch: "Zone 2"
+        valve_switch_id: zone_2_output
+        enable_switch: "Zone 2 in cycle"
+        run_duration: 900s
+        pump_switch_id: master_output
+      - valve_switch: "Zone 3"
+        valve_switch_id: zone_3_output
+        enable_switch: "Zone 3 in cycle"
+        run_duration: 900s
+        pump_switch_id: master_output
+      - valve_switch: "Zone 4"
+        valve_switch_id: zone_4_output
+        enable_switch: "Zone 4 in cycle"
+        run_duration: 900s
+        pump_switch_id: master_output
+
+    # The master valve is modelled as the component's "pump", which gives the
+    # lead/lag delays for free. It leads the zone by 2 s and lags it by 2 s, so
+    # the zone valve is never the first thing to see pressure and never the last
+    # thing holding it. (The four delay keys are two mutually exclusive pairs;
+    # setting the other member of each pair would invert the ordering.)
+    pump_start_valve_delay: 2s
+    pump_stop_pump_delay: 2s
+
+    # Left at its default of false, so the master stays energised through the
+    # inter-zone settle gap. docs/05-hardware.md is explicit that dropping it
+    # between zones re-primes the mains and invites water hammer -- and it is
+    # also why the max-runtime backstop belongs on the ZONE-side common, not
+    # the overall 24 VAC common, which is live for the whole cycle.
+    pump_switch_off_during_valve_open_delay: false
