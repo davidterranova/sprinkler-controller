@@ -140,6 +140,12 @@ async def to_code(config):
 
 GUARD_ACTION_SCHEMA = cv.Schema({cv.GenerateID(): cv.use_id(IrrigationGuard)})
 
+# synchronous=True for all three: each Action overrides play() with a plain
+# call into the guard and nothing is deferred to a timer, callback or loop(),
+# so the base play_complex() runs play_next_() before the initial play returns.
+# That is exactly what these actions must do -- a hard_close that only took
+# effect on the next loop() would not be a hard close.
+
 
 @automation.register_action(
     "irrigation_guard.arm",
@@ -151,6 +157,7 @@ GUARD_ACTION_SCHEMA = cv.Schema({cv.GenerateID(): cv.use_id(IrrigationGuard)})
             cv.Required("duration"): cv.templatable(cv.positive_time_period_seconds),
         }
     ),
+    synchronous=True,
 )
 async def arm_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
@@ -162,14 +169,18 @@ async def arm_action_to_code(config, action_id, template_arg, args):
     return var
 
 
-@automation.register_action("irrigation_guard.disarm", DisarmAction, GUARD_ACTION_SCHEMA)
+@automation.register_action(
+    "irrigation_guard.disarm", DisarmAction, GUARD_ACTION_SCHEMA, synchronous=True
+)
 async def disarm_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
     return var
 
 
-@automation.register_action("irrigation_guard.hard_close", HardCloseAction, GUARD_ACTION_SCHEMA)
+@automation.register_action(
+    "irrigation_guard.hard_close", HardCloseAction, GUARD_ACTION_SCHEMA, synchronous=True
+)
 async def hard_close_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
