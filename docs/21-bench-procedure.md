@@ -11,6 +11,10 @@ Two of those are automated and take about a second (`make test`). The third is t
 here needs water, a valve, or the relay board's output side — LEDs and a serial log are enough for
 every row except the two marked ⚡, which need the deadman circuit built.
 
+**Eight zones are wired** (GPIO 32, 33, 25, 26, 27, 23, 19, 18) even though four are planted to start
+with. Test all eight: an unplanted zone still has a relay, and a relay that has never been commanded
+is a relay whose failure mode is unknown.
+
 > **Record the result of each row in this file as you go**, with the date and what you actually saw.
 > A checklist with no evidence in it is a wish list. That evidence is also the commissioning record
 > NFR-D4 asks for.
@@ -117,7 +121,10 @@ original design would have failed.
 | Set **P1 every N days** to 3, run once, then wait three days (or move the clock) | Runs on day 0 and day 3, not on days 1 and 2, and the interval is measured from the **actual** run. | ☐ |
 | Leave the device off across a scheduled start, boot it 20 min later | Runs as `catch_up`. Boot it 90 min later instead: it does **not** run. | ☐ |
 | Let a zone accumulate 3 h of run time in one day | Further runs for that zone are refused `skipped_budget`; other zones are unaffected; it resets at local midnight. | ☐ |
-| Press **Test all zones** | Every enabled zone runs for 2 min, in order, regardless of the enable switches. | ☐ |
+| Press **Test all zones** | **All eight** run for 2 min each, in order, regardless of the enable switches. This is also the commissioning check that every relay channel and every LED actually works. | ☐ |
+| Set **P1 zone 5-8 minutes** to 0, leave zones 1-4 non-zero, and watch a cycle | Only zones 1-4 appear in `Current plan` and only they run — a zone that is wired but has no duration is left out of the plan entirely. This is the whole basis for declaring eight zones while planting four. | ☐ |
+| Give zone 5 a duration and Apply | It joins the plan on the next cycle, with no firmware change. | ☐ |
+| Watch which zone is first across eight consecutive days | **It rotates.** All eight zones take the first slot once (FR-4.5, "so the same zone is not always last"). Set a zone's priority lower to pin it first and confirm rotation no longer moves it. | ☐ |
 
 ## Home Assistant integration
 
@@ -126,7 +133,8 @@ original design would have failed.
 | Unplug the device | `binary_sensor.…_status` goes unavailable. **Build the HA-side availability automation now** (FR-9.4) — a dead controller cannot raise its own alarm, and this is the only alarm that survives total silence. | ☐ |
 | Change a duration in HA without pressing Apply | `Config pending` true; the running schedule is unchanged. | ☐ |
 | Press **Apply**, then reboot | The new schedule survives, restored from the dual-bank record with its sequence number in the log. | ☐ |
-| Count the entities in HA | ~85. The budget is ~130, and the binding constraint is the ListEntities dump rather than RAM. | ☐ |
+| Count the entities in HA | **91.** The budget is ~130, and the binding constraint is the ListEntities dump rather than RAM — this build runs ESPHome 2026.8.2, which predates the loop-stall fix in #18577, so watch for entities silently missing after a reconnect. | ☐ |
+| Look for a `switch.…_zone_1` entity in HA | **There isn't one, and there must not be.** The sequencer's per-valve switches are internal: turning one on calls `start_single_valve()` directly, bypassing hold, winter, lockout and the daily budget. FR-10.1 says a manual run is "run zone N for M minutes", never "open zone N". | ☐ |
 
 ## What v0 deliberately does not cover
 

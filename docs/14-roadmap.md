@@ -28,8 +28,11 @@ unit tests green including DST; a simulated season runs unattended.
 > | A simulated season runs unattended | ✅ 1 March → 31 October at one-minute ticks, 131 injected reboots, a holiday hold, a latched CRITICAL and a winter switch, asserting invariants continuously. **It found a real bug** — see the changelog. |
 > | Every row of [§5](03-fault-policy.md) demonstrated | ⏳ The firmware side is written and compiles; the demonstrations are a checklist in **[§21](21-bench-procedure.md)**. Rows 7–9 and 11 are **deferred to v1** — they need a flow meter and coil current sensing, neither of which exists on a bench. |
 >
-> **Four zones, not eight** (owner's call, 2026-09-05). `MAX_ZONES` stays 8, so growing is a YAML edit
-> and a schema-version bump rather than a struct-layout migration.
+> **Eight zones wired, four planted** (2026-09-06). The relay board is 8-channel and all eight
+> channels are on GPIOs, so the firmware declares eight: a pin that can reach a relay coil is a pin
+> the guard must be able to close, planted or not. How many actually water is a *schedule* question —
+> a zone with 0 minutes in every program is left out of the resolved plan entirely — so adding the
+> fifth bed is a duration edit, not a firmware change.
 >
 > **Two hardware items still gate connecting anything to water:** the relay board's T1/T3/T4 bench
 > tests (E1–E3), and **E6** — proving the deadman de-energises the rail under a *deliberately hung*

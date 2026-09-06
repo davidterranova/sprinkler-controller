@@ -5,7 +5,8 @@ electrically actuated valves, executing its schedule **autonomously**, monitored
 **Home Assistant**, and **failing closed** on every fault class.
 
 > **Status: v0 bench firmware built (2026-09-05). No hardware purchased, no water anywhere.**
-> Four zones, LEDs where the solenoids will go. `make test` runs 61 host unit tests including a
+> Eight zones wired to an 8-channel relay board, LEDs where the solenoids will go; four planted to
+> start with. `make test` runs 65 host unit tests including a
 > DST table and a full simulated season; `make build` compiles the firmware. What remains for v0 is
 > the hardware demonstration checklist in [§21](docs/21-bench-procedure.md).
 > The specification lives in [`docs/`](docs/). Items marked **[V]** were verified against source,
@@ -56,6 +57,7 @@ deadman — not from firmware.
 | Document | What's in it |
 |---|---|
 | [7. Hardware architecture](docs/05-hardware.md) | Valves, relays, the deadman, the pin map, **the bench tests that gate the relay board**, fault coverage, budget. |
+| **[22. Wiring — the global interconnect](docs/22-wiring.md)** | **How every component connects to every other one, pin by pin.** The three electrical domains, the 24 VAC series chain and why each safety element sits in the common it does, the corrected deadman schematic, and the relay-board rules that are not obvious. |
 | [7b. Buy vs build (D2)](docs/06-buy-vs-build.md) | The weighted matrix, 10-year TCO, why every commercial controller was eliminated, and the reversibility argument. |
 | [8. Firmware architecture](docs/07-firmware.md) | ESPHome + custom C++ components, the state machine, persistence, timekeeping, crash recovery, testing. |
 | [9. Home Assistant integration](docs/08-home-assistant.md) | The live instance as it actually is, the entity model, where schedule truth lives, and the dashboard. |
