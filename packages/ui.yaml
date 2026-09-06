@@ -1,0 +1,607 @@
+# =============================================================================
+#  L5 -- the Home Assistant surface
+#
+#  FR-2.1: rules are AUTHORED here and OWNED by the ESP32. Every config entity
+#  below is a mirror of the device's staged schedule -- it reads its value from
+#  `sched->staged()` and writes back through a `stage_*` call. Nothing is
+#  restored from HA on boot, and HA is never in the control path.
+#
+#  FR-2.2: edits are staged in RAM and committed by an explicit **Apply**. A
+#  partially-applied schedule must never exist, so Apply validates the whole
+#  schedule and either commits all of it or none of it.
+#
+#  Weekday masks are raw bitmasks in v0 (bit 0 = Sunday ... bit 6 = Saturday;
+#  127 = every day). Deliberately: the friendly weekday UI belongs in Home
+#  Assistant, which is where FR-2.1 says rules are authored, and inventing it
+#  here would put a second source of truth on the device.
+#
+#  Entity budget: this file plus the sequencer and the diagnostics comes to
+#  roughly 85 entities against the ~130 the RAM analysis allows. Think twice
+#  before adding the next one -- the binding constraint is the ListEntities
+#  dump, not memory (docs/07-firmware.md).
+# =============================================================================
+
+number:
+  # --- global -------------------------------------------------------------
+  - platform: template
+    name: "Seasonal adjustment"
+    id: seasonal_pct
+    icon: mdi:sun-thermometer
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 200          # FR-5.6: clamped, and the core clamps again
+    step: 5
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().seasonal_pct;"
+    set_action:
+      - lambda: "id(sched)->stage_seasonal_pct((uint16_t) x);"
+
+  # --- program 1 ----------------------------------------------------------
+  - platform: template
+    name: "P1 start hour"
+    id: p1_hour
+    min_value: 0
+    max_value: 23
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[0].start_minute / 60;"
+    set_action:
+      - lambda: |-
+          auto &p = id(sched)->staged().programs[0];
+          id(sched)->stage_program_start(0, (uint16_t) x * 60 + p.start_minute % 60);
+  - platform: template
+    name: "P1 start minute"
+    id: p1_minute
+    min_value: 0
+    max_value: 55
+    step: 5
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[0].start_minute % 60;"
+    set_action:
+      - lambda: |-
+          auto &p = id(sched)->staged().programs[0];
+          id(sched)->stage_program_start(0, (p.start_minute / 60) * 60 + (uint16_t) x);
+  - platform: template
+    name: "P1 weekday mask"
+    id: p1_mask
+    min_value: 0
+    max_value: 127
+    step: 1
+    mode: box
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[0].days.weekday_mask;"
+    set_action:
+      - lambda: "id(sched)->stage_program_weekday_mask(0, (uint8_t) x);"
+  - platform: template
+    name: "P1 every N days"
+    id: p1_interval
+    min_value: 0          # 0 = the interval filter is off
+    max_value: 14
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[0].days.interval_days;"
+    set_action:
+      - lambda: "id(sched)->stage_program_interval(0, (uint8_t) x);"
+  - platform: template
+    # FR-5.10 cycle-and-soak. N passes of duration/N, so water has time to
+    # infiltrate rather than run off -- the soil here is heavy clay (D5), which
+    # infiltrates at roughly 3-6 mm/h against a rotor's 10-12 mm/h.
+    name: "P1 passes (cycle & soak)"
+    id: p1_repeats
+    min_value: 1
+    max_value: 6
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[0].repeats;"
+    set_action:
+      - lambda: "id(sched)->stage_program_repeats(0, (uint8_t) x);"
+
+  - platform: template
+    name: "P1 zone 1 minutes"
+    id: p1_z1
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 120
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[0].zone_minutes[0];"
+    set_action:
+      - lambda: "id(sched)->stage_zone_minutes(0, 0, (uint16_t) x);"
+  - platform: template
+    name: "P1 zone 2 minutes"
+    id: p1_z2
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 120
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[0].zone_minutes[1];"
+    set_action:
+      - lambda: "id(sched)->stage_zone_minutes(0, 1, (uint16_t) x);"
+  - platform: template
+    name: "P1 zone 3 minutes"
+    id: p1_z3
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 120
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[0].zone_minutes[2];"
+    set_action:
+      - lambda: "id(sched)->stage_zone_minutes(0, 2, (uint16_t) x);"
+  - platform: template
+    name: "P1 zone 4 minutes"
+    id: p1_z4
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 120
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[0].zone_minutes[3];"
+    set_action:
+      - lambda: "id(sched)->stage_zone_minutes(0, 3, (uint16_t) x);"
+
+  # --- program 2 ----------------------------------------------------------
+  - platform: template
+    name: "P2 start hour"
+    id: p2_hour
+    min_value: 0
+    max_value: 23
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[1].start_minute / 60;"
+    set_action:
+      - lambda: |-
+          auto &p = id(sched)->staged().programs[1];
+          id(sched)->stage_program_start(1, (uint16_t) x * 60 + p.start_minute % 60);
+  - platform: template
+    name: "P2 start minute"
+    id: p2_minute
+    min_value: 0
+    max_value: 55
+    step: 5
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[1].start_minute % 60;"
+    set_action:
+      - lambda: |-
+          auto &p = id(sched)->staged().programs[1];
+          id(sched)->stage_program_start(1, (p.start_minute / 60) * 60 + (uint16_t) x);
+  - platform: template
+    name: "P2 weekday mask"
+    id: p2_mask
+    min_value: 0
+    max_value: 127
+    step: 1
+    mode: box
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[1].days.weekday_mask;"
+    set_action:
+      - lambda: "id(sched)->stage_program_weekday_mask(1, (uint8_t) x);"
+  - platform: template
+    name: "P2 every N days"
+    id: p2_interval
+    min_value: 0
+    max_value: 14
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[1].days.interval_days;"
+    set_action:
+      - lambda: "id(sched)->stage_program_interval(1, (uint8_t) x);"
+  - platform: template
+    name: "P2 passes (cycle & soak)"
+    id: p2_repeats
+    min_value: 1
+    max_value: 6
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[1].repeats;"
+    set_action:
+      - lambda: "id(sched)->stage_program_repeats(1, (uint8_t) x);"
+  - platform: template
+    name: "P2 zone 1 minutes"
+    id: p2_z1
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 120
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[1].zone_minutes[0];"
+    set_action:
+      - lambda: "id(sched)->stage_zone_minutes(1, 0, (uint16_t) x);"
+  - platform: template
+    name: "P2 zone 2 minutes"
+    id: p2_z2
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 120
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[1].zone_minutes[1];"
+    set_action:
+      - lambda: "id(sched)->stage_zone_minutes(1, 1, (uint16_t) x);"
+  - platform: template
+    name: "P2 zone 3 minutes"
+    id: p2_z3
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 120
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[1].zone_minutes[2];"
+    set_action:
+      - lambda: "id(sched)->stage_zone_minutes(1, 2, (uint16_t) x);"
+  - platform: template
+    name: "P2 zone 4 minutes"
+    id: p2_z4
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 120
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[1].zone_minutes[3];"
+    set_action:
+      - lambda: "id(sched)->stage_zone_minutes(1, 3, (uint16_t) x);"
+
+  # --- manual run ---------------------------------------------------------
+  - platform: template
+    # FR-10.1: a manual run is "run zone N for M minutes", never "open zone N".
+    # There is deliberately no way to express an open-ended one.
+    name: "Manual run duration"
+    id: manual_minutes
+    unit_of_measurement: min
+    min_value: 1
+    max_value: 60          # FR-10.3, and the core refuses anything above it
+    step: 1
+    optimistic: true
+    restore_value: true
+    initial_value: 5
+    entity_category: config
+
+  # --- bench simulation ---------------------------------------------------
+  - platform: template
+    # Divides every run duration, so a full cycle takes seconds instead of
+    # hours. It can only ever SHORTEN a run: a value left behind by accident
+    # under-waters, which is visible and is not a P0 event.
+    name: "Simulation speed"
+    id: sim_speed
+    min_value: 1
+    max_value: 600
+    step: 1
+    mode: box
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->simulation_speed();"
+    set_action:
+      - lambda: "id(sched)->set_simulation_speed((uint16_t) x);"
+
+select:
+  - platform: template
+    name: "Manual run zone"
+    id: manual_zone
+    options: ["Zone 1", "Zone 2", "Zone 3", "Zone 4"]
+    initial_option: "Zone 1"
+    optimistic: true
+    restore_value: true
+    entity_category: config
+
+switch:
+  - platform: template
+    name: "P1 enabled"
+    id: p1_enabled
+    entity_category: config
+    lambda: "return id(sched)->staged().programs[0].enabled;"
+    turn_on_action:
+      - lambda: "id(sched)->stage_program_enabled(0, true);"
+    turn_off_action:
+      - lambda: "id(sched)->stage_program_enabled(0, false);"
+  - platform: template
+    name: "P2 enabled"
+    id: p2_enabled
+    entity_category: config
+    lambda: "return id(sched)->staged().programs[1].enabled;"
+    turn_on_action:
+      - lambda: "id(sched)->stage_program_enabled(1, true);"
+    turn_off_action:
+      - lambda: "id(sched)->stage_program_enabled(1, false);"
+
+  - platform: template
+    name: "Zone 1 enabled"
+    entity_category: config
+    lambda: "return id(sched)->staged().zone_enabled[0];"
+    turn_on_action:
+      - lambda: "id(sched)->stage_zone_enabled(0, true);"
+    turn_off_action:
+      - lambda: "id(sched)->stage_zone_enabled(0, false);"
+  - platform: template
+    name: "Zone 2 enabled"
+    entity_category: config
+    lambda: "return id(sched)->staged().zone_enabled[1];"
+    turn_on_action:
+      - lambda: "id(sched)->stage_zone_enabled(1, true);"
+    turn_off_action:
+      - lambda: "id(sched)->stage_zone_enabled(1, false);"
+  - platform: template
+    name: "Zone 3 enabled"
+    entity_category: config
+    lambda: "return id(sched)->staged().zone_enabled[2];"
+    turn_on_action:
+      - lambda: "id(sched)->stage_zone_enabled(2, true);"
+    turn_off_action:
+      - lambda: "id(sched)->stage_zone_enabled(2, false);"
+  - platform: template
+    name: "Zone 4 enabled"
+    entity_category: config
+    lambda: "return id(sched)->staged().zone_enabled[3];"
+    turn_on_action:
+      - lambda: "id(sched)->stage_zone_enabled(3, true);"
+    turn_off_action:
+      - lambda: "id(sched)->stage_zone_enabled(3, false);"
+
+  - platform: template
+    # FR-8.5. The one mode that blocks manual runs too, because the pipes are
+    # drained and there is nothing safe to do. It is also the only unbounded
+    # "off" the design offers -- Hold always expires.
+    name: "Winter mode"
+    id: winter_mode
+    icon: mdi:snowflake
+    lambda: "return id(sched)->winter();"
+    turn_on_action:
+      - lambda: "id(sched)->set_winter(true);"
+    turn_off_action:
+      - lambda: "id(sched)->set_winter(false);"
+
+button:
+  # --- config commit ------------------------------------------------------
+  - platform: template
+    name: "Apply schedule"
+    id: apply_schedule
+    icon: mdi:content-save-check
+    entity_category: config
+    on_press:
+      - lambda: |-
+          if (!id(sched)->apply())
+            ESP_LOGW("ui", "schedule rejected: %s", id(sched)->last_validation_message());
+  - platform: template
+    name: "Discard edits"
+    icon: mdi:undo
+    entity_category: config
+    on_press:
+      - lambda: "id(sched)->revert();"
+
+  # --- the three verbs ----------------------------------------------------
+  - platform: template
+    # FR-8.3: the default is 24 h, not indefinite.
+    name: "Hold 24 h"
+    icon: mdi:pause-octagon
+    on_press:
+      - lambda: 'id(sched)->hold(24 * 3600, "ha");'
+  - platform: template
+    name: "Hold 7 days"
+    icon: mdi:pause-octagon-outline
+    on_press:
+      - lambda: 'id(sched)->hold(7 * 24 * 3600, "ha");'
+  - platform: template
+    name: "Release hold"
+    icon: mdi:play-outline
+    on_press:
+      - lambda: "id(sched)->release_hold();"
+  - platform: template
+    name: "Pause run"
+    icon: mdi:pause
+    on_press:
+      - lambda: "id(sched)->pause();"
+  - platform: template
+    name: "Resume run"
+    icon: mdi:play
+    on_press:
+      - lambda: "id(sched)->resume();"
+  - platform: template
+    name: "Stop everything"
+    icon: mdi:stop
+    on_press:
+      - lambda: "id(sched)->stop();"
+
+  # --- runs ---------------------------------------------------------------
+  - platform: template
+    name: "Start manual run"
+    icon: mdi:water
+    on_press:
+      - lambda: |-
+          const uint8_t zone = (uint8_t) id(manual_zone).active_index().value_or(0);
+          id(sched)->manual_run(zone, (uint16_t) id(manual_minutes).state);
+  - platform: template
+    # FR-10.8, the commissioning action: two minutes per zone, every zone.
+    name: "Test all zones (2 min each)"
+    icon: mdi:test-tube
+    entity_category: diagnostic
+    on_press:
+      - lambda: "id(sched)->test_all_zones(120);"
+
+  # --- alarms and forensics ----------------------------------------------
+  - platform: template
+    # FR-9.3: a latched CRITICAL requires an explicit, attributed
+    # acknowledgement. Nothing clears one by itself, and a reboot does not.
+    name: "Acknowledge alarms"
+    icon: mdi:bell-check
+    on_press:
+      - lambda: 'id(sched)->acknowledge("ha");'
+  - platform: template
+    name: "Dump run records"
+    icon: mdi:format-list-bulleted
+    entity_category: diagnostic
+    on_press:
+      - lambda: "id(sched)->log_records();"
+
+  # --- bench instrumentation (v0 only; remove before any valve is wired) ---
+  - platform: template
+    # Stops feeding the guard's liveness counter for 3 s WITHOUT hanging the
+    # CPU. Proves the counter-staleness half of the deadman from a desk.
+    name: "BENCH starve the deadman (3 s)"
+    icon: mdi:heart-broken
+    entity_category: diagnostic
+    on_press:
+      - lambda: "id(guard)->bench_stop_feeding(3000);"
+  - platform: template
+    # The real test, and the one verification item E6 actually requires: hang
+    # the main loop on purpose and prove the rail de-energises. Pulling power
+    # proves nothing -- any design passes that.
+    #
+    # This does NOT return. The task watchdog will reset the board; that is the
+    # expected outcome, and the crash-loop brake will engage if you press it
+    # three times inside ten minutes.
+    name: "BENCH hang the main loop (E6)"
+    icon: mdi:skull
+    entity_category: diagnostic
+    on_press:
+      - lambda: |-
+          ESP_LOGE("bench", "hanging the main loop on purpose -- the deadman must drop the rail");
+          while (true) {
+          }
+
+binary_sensor:
+  - platform: template
+    # FR-2.3, mirroring binary_sensor.piscine_pool_controller_filtration_config_pending
+    # on the existing pool controller.
+    name: "Config pending"
+    id: config_pending
+    icon: mdi:content-save-alert
+    lambda: "return id(sched)->config_pending();"
+  - platform: template
+    name: "Watering"
+    device_class: running
+    lambda: "return id(sched)->running();"
+  - platform: template
+    name: "Held"
+    icon: mdi:pause-octagon
+    lambda: "return id(sched)->held();"
+  - platform: template
+    name: "Locked out"
+    device_class: problem
+    lambda: "return id(sched)->locked_out();"
+  - platform: template
+    # Fault-policy row 6. False means no scheduled run will fire -- which is
+    # correct behaviour, and is why it deserves an entity of its own rather
+    # than being buried in a log line.
+    name: "Clock trusted"
+    device_class: problem
+    lambda: "return !id(sched)->clock_trusted();"
+  - platform: template
+    # The deadman's own health. If this ever reads false while the device is
+    # still answering the API, something is very wrong with the liveness
+    # accounting rather than with the main loop.
+    name: "Deadman alive"
+    entity_category: diagnostic
+    device_class: problem
+    lambda: "return !id(guard)->heartbeat_alive();"
+
+sensor:
+  - platform: template
+    name: "Active zone"
+    id: active_zone_sensor
+    icon: mdi:water-outline
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: "return id(sched)->active_zone() + 1;"
+  - platform: template
+    name: "Run time remaining"
+    unit_of_measurement: s
+    device_class: duration
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: "return id(sched)->seconds_remaining();"
+  # FR-7.3: numeric, with a state_class, because HA's recorder purges detail
+  # after ~10 days and only state_class sensors reach long-term statistics.
+  # These are also the proof that the daily per-zone budget is real.
+  - platform: template
+    name: "Zone 1 run time today"
+    unit_of_measurement: s
+    device_class: duration
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: "return id(sched)->zone_seconds_today(0);"
+  - platform: template
+    name: "Zone 2 run time today"
+    unit_of_measurement: s
+    device_class: duration
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: "return id(sched)->zone_seconds_today(1);"
+  - platform: template
+    name: "Zone 3 run time today"
+    unit_of_measurement: s
+    device_class: duration
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: "return id(sched)->zone_seconds_today(2);"
+  - platform: template
+    name: "Zone 4 run time today"
+    unit_of_measurement: s
+    device_class: duration
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: "return id(sched)->zone_seconds_today(3);"
+
+text_sensor:
+  - platform: template
+    name: "State"
+    id: state_text
+    icon: mdi:state-machine
+    update_interval: 5s
+    lambda: "return id(sched)->state_text();"
+  - platform: template
+    name: "Mode"
+    icon: mdi:cog-outline
+    update_interval: 30s
+    lambda: "return id(sched)->mode_text();"
+  - platform: template
+    # FR-4.4: the resolved plan is published BEFORE the cycle executes, so
+    # "scheduled vs actual" has something to compare against.
+    name: "Current plan"
+    icon: mdi:clipboard-list
+    update_interval: 30s
+    lambda: "return id(sched)->plan_text();"
+  - platform: template
+    name: "Next run"
+    icon: mdi:clock-outline
+    update_interval: 30s
+    lambda: "return id(sched)->next_run_text();"
+  - platform: template
+    # FR-8.7: attributed, so the digest can say who to ask.
+    name: "Hold status"
+    icon: mdi:account-clock
+    update_interval: 60s
+    lambda: "return id(sched)->hold_text();"
+  - platform: template
+    name: "Last run"
+    icon: mdi:history
+    update_interval: 30s
+    lambda: "return id(sched)->last_record_text();"
+  - platform: template
+    name: "Alarm"
+    icon: mdi:alert
+    update_interval: 10s
+    lambda: "return id(sched)->alarm_text();"

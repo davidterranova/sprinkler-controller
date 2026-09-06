@@ -1,0 +1,33 @@
+# =============================================================================
+#  L3 -- the scheduler
+#
+#  Small on purpose. Every decision worth arguing about lives in
+#  components/irrigation_core/ and is tested on a host against a table of
+#  awkward dates; what is configured here is only the two policy numbers that
+#  are not safe to leave as runtime entities.
+# =============================================================================
+
+irrigation_scheduler:
+  id: sched
+  sprinkler_id: sequencer
+  guard_id: guard
+  time_id: device_time
+  zone_count: 4
+
+  # How long after a missed start a program may still begin. Bounded on
+  # purpose: a controller that was off all morning must NOT start the 05:00
+  # program at 22:00, and "catch up whatever you missed, whenever" is how a
+  # fortnight's outage becomes a night of continuous watering.
+  #
+  # NOTE: this window is a v0 decision, not a signed-off requirement. The
+  # requirements say catch-up exists (FR-7.2 names `catch-up` as a run source)
+  # but never bound it. 60 min is the smallest value that survives a router
+  # reboot or a short power cut without losing the day's watering. Worth a
+  # decision entry before v1.
+  catch_up_window: 60min
+
+  # FR-3.7a. The per-day per-zone ceiling that makes a resume bug survivable:
+  # it is the budget, not the run counter, that is the real stop condition.
+  # 3 h against a 2 h single-run cap leaves room for cycle-and-soak passes plus
+  # one manual run, and nothing more.
+  daily_zone_budget: 3h

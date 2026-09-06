@@ -1,171 +1,77 @@
 # =============================================================================
-#  esp-sprinkler -- BOOTSTRAP configuration
-# =============================================================================
+#  esp-sprinkler -- v0 BENCH configuration
 #
-#  Deliberately does NOT drive any valve.
+#  This is the roadmap's v0: an ESP32, a relay board, and LEDs where the
+#  solenoids will go. Four zones plus a master, the stock `sprinkler` component
+#  for sequencing, a scheduler whose decisions are unit-tested on a host, and an
+#  independent guard that closes the outputs when the application stops proving
+#  it is alive.
 #
-#  This is the v0 starting point: it gets the board onto Wi-Fi, encrypted,
-#  OTA-updatable and reporting the diagnostics the spec's watch-thresholds
-#  need. Valve outputs arrive only after bench tests T1/T3/T4 pass on the
-#  relay board (docs/16-verification-backlog.md, items E1-E3) -- until then
-#  there is no output that could energise a solenoid, which is the correct
-#  state for a board sitting on a desk.
+#  **No water. No valve. Nothing is plumbed.** The roadmap's guiding principle
+#  is that plumbing is the irreversible part, and the safety layer has to be
+#  proven on a bench first. Two things gate connecting a valve:
+#
+#    * bench tests T1/T3/T4 on the relay board (verification E1-E3), and
+#    * E6 -- prove the deadman de-energises the rail under a *deliberately
+#      hung* firmware, not by pulling power, which any design passes.
+#
+#  See docs/21-bench-procedure.md for how to run the v0 exit-criteria tests.
 #
 #  Board (read off the hardware, 2026-09-05):
 #    ESP32-D0WD-V3 rev v3.1, dual core, 40 MHz crystal, 4 MB flash,
 #    MAC 10:06:1c:83:b9:94. Classic ESP32 => 8 PCNT units for the flow meter.
 #
-#  Naming: English throughout -- repo, device and HA entities. Note this
-#  diverges from docs/08-home-assistant.md, which proposed French entity names
-#  to match the existing pool controller's convention. English is the owner's
-#  call; the HA doc's entity_id examples should be read as illustrative.
+#  Naming: English throughout -- repo, device and HA entities. This diverges
+#  from docs/08-home-assistant.md, which proposed French entity names to match
+#  the existing pool controller. English is the owner's call; the HA doc's
+#  entity_id examples should be read as illustrative.
 # =============================================================================
 
 substitutions:
   node_name: sprinkler-controller
   friendly_name: Sprinkler Controller
 
-esphome:
-  name: ${node_name}
-  friendly_name: ${friendly_name}
-  # Runs before anything else. Once valve outputs exist, this is where the
-  # unconditional close-all sweep goes (priority 800), per docs/07-firmware.md.
-  on_boot:
-    - priority: 800
-      then:
-        - logger.log:
-            level: INFO
-            format: "Boot: no valve outputs defined in this bootstrap build."
+  # --- pin map ------------------------------------------------------------
+  # The all-direct fallback set from docs/05-hardware.md, not the PCF8574 path:
+  # on the bench the guard must be able to hard-close every zone pin itself,
+  # and it can only write pins it owns directly. See the note in
+  # packages/zones.yaml.
+  #
+  # NEVER use GPIO 0, 1, 2, 3, 5, 6-11, 12 or 15. GPIO12 (MTDI) is the one that
+  # must be respected absolutely: every relay IN line carries a 1 kOhm pull-up,
+  # which on MTDI selects a 1.8 V VDD_SDIO at reset, browns out the 3.3 V flash,
+  # and the board will not boot or flash at all [V]. The guard's config schema
+  # rejects all of them rather than trusting anyone to remember.
+  zone_1_pin: GPIO32
+  zone_2_pin: GPIO33
+  zone_3_pin: GPIO25
+  zone_4_pin: GPIO26
+  master_pin: GPIO17
+  deadman_pin: GPIO13
 
-esp32:
-  board: esp32dev
-  framework:
-    # esp-idf, not Arduino: >=135 KB smaller binary for an identical config,
-    # 112 vs 96 NVS sectors, and direct access to esp_timer / PCNT / NVS which
-    # the custom components will need.
-    type: esp-idf
-    # ESPHome suggests two `advanced:` options at boot. Both are DECLINED, on
-    # purpose -- recorded here so nobody "fixes" it later:
-    #
-    #   minimum_chip_revision: "3.1"  -- would shrink the binary, but locks the
-    #     firmware to rev >= 3.1 silicon. NFR-L2 requires pre-flashed spare
-    #     ESP32s on the shelf, and a spare may well be rev 1.0 or 3.0; it would
-    #     simply not boot. Flash is at 48 % of a 1.75 MB partition, so we are
-    #     trading real spare-board compatibility for space we do not need.
-    #
-    #   sram1_as_iram: true  -- gains ~40 KB of IRAM by taking it from DRAM.
-    #     Wrong direction here: the constrained resource is the DRAM heap
-    #     (entities, API buffers, fragmentation -- NFR-R8, R24), not IRAM.
+  # true for a standard opto-isolated relay board, whose IN pins are pulled UP
+  # through the board's own 1 kOhm. Combined with "during reset, all pins are
+  # output-disabled" (ESP32 datasheet v5.3, A.1 note 9), that makes "booting,
+  # absent, in reset, or with the wire fallen off" resolve to relay OFF by
+  # construction, with no external components.
+  #
+  # ** Bench test T3 (verification E2) confirms this before it is trusted. **
+  # "High/low trigger selectable" boards exist; set to high-trigger, everything
+  # inverts. Set this to "false" only if you are driving LEDs straight from the
+  # GPIOs with no relay board in between.
+  relay_active_low: "true"
 
-# -----------------------------------------------------------------------------
-#  Connectivity
-#
-#  The two `reboot_timeout: 0s` lines below are the most important settings in
-#  this file. Both default to 15 min, which means a stock ESPHome config
-#  REBOOTS THE CONTROLLER EVERY QUARTER HOUR for as long as Wi-Fi or Home
-#  Assistant is unavailable -- silently ending the season's watering. P3b
-#  ("a network fault is not a water fault") makes disabling them a stated
-#  requirement, not a tuning preference.
-# -----------------------------------------------------------------------------
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  reboot_timeout: 0s
-  # Fallback hotspot, so the node stays configurable if the AP changes.
-  ap:
-    ssid: ${node_name}-fallback
-    password: !secret sprinkler_ota_password
+packages:
+  base: !include packages/base.yaml
+  safety: !include packages/safety.yaml
+  zones: !include packages/zones.yaml
+  scheduler: !include packages/scheduler.yaml
+  ui: !include packages/ui.yaml
+  # Fit the DS3231 and uncomment -- see the file's header for the two edits.
+  # rtc: !include packages/rtc-ds3231.yaml
 
-captive_portal:
-
-api:
-  encryption:
-    key: !secret sprinkler_api_key
-  reboot_timeout: 0s
-
-ota:
-  - platform: esphome
-    password: !secret sprinkler_ota_password
-    # Once valves exist, add `on_begin:` here to shut down any running zone:
-    # OTA blocks the main loop AND calls App.feed_wdt() internally, so neither
-    # the run deadline nor the watchdog is enforcing anything during an update.
-
-logger:
-  level: INFO
-
-safe_mode:
-  # After this long, the boot counts as good and the counter resets.
-  boot_is_good_after: 5min
-  # Once valve outputs exist, an `on_safe_mode:` hook must write the raw GPIOs
-  # low via IDF calls -- in safe mode the switch component never runs, so
-  # nothing else ever will (risk R1).
-
-# -----------------------------------------------------------------------------
-#  Time -- the ESP32 must own the clock (FR-1.3)
-#
-#  SNTP is only an opportunistic correction. A battery-backed RTC (DS3231 +
-#  PCF85063A) joins on I2C GPIO21/22 once fitted; until then a power cut loses
-#  the date, which is exactly why the RTC is mandatory rather than optional.
-# -----------------------------------------------------------------------------
-time:
-  - platform: sntp
-    id: sntp_time
-    # Named zone, never a fixed offset: Europe/Paris shifts twice a year and a
-    # schedule stored as UTC+2 would water an hour off for half the year.
-    timezone: !secret sprinkler_timezone
-    servers:
-      # LAN gateway first, so the clock survives a WAN outage.
-      - 192.168.0.1
-      - pool.ntp.org
-
-# -----------------------------------------------------------------------------
-#  Diagnostics -- these are the watch-thresholds from docs/07-firmware.md
-#
-#  Alarm on `block` (largest free contiguous block), NOT on `free`: every
-#  documented ESPHome field failure is a contiguity failure at the size of the
-#  config's largest single allocation, never a total-free-bytes failure.
-# -----------------------------------------------------------------------------
-debug:
-  update_interval: 60s
-
-sensor:
-  - platform: debug
-    free:
-      name: "Heap libre"
-    block:
-      name: "Heap plus grand bloc"
-    fragmentation:
-      name: "Heap fragmentation"
-    loop_time:
-      name: "Durée de boucle"
-  - platform: uptime
-    name: "Uptime"
-  - platform: wifi_signal
-    name: "Signal Wi-Fi"
-    update_interval: 120s
-
-text_sensor:
-  - platform: debug
-    device:
-      name: "Info appareil"
-    reset_reason:
-      name: "Cause du dernier redémarrage"
-  - platform: version
-    name: "Version ESPHome"
-  - platform: wifi_info
-    ip_address:
-      name: "Adresse IP"
-    ssid:
-      name: "SSID"
-
-binary_sensor:
-  # Mirrors binary_sensor.piscine_pool_controller_status. This is what the
-  # HA-side availability watchdog (FR-9.4) triggers on -- a dead controller
-  # cannot raise its own alarm.
-  - platform: status
-    name: "Status"
-
-button:
-  - platform: restart
-    name: "Restart"
-    entity_category: diagnostic
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [irrigation_core, irrigation_guard, irrigation_scheduler]

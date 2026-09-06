@@ -1,0 +1,139 @@
+# =============================================================================
+#  base -- board, connectivity, clock, diagnostics
+#
+#  Nothing in this file touches a valve. It is the part of the config that
+#  would be identical for any ESPHome node on this network, plus the two
+#  settings that are specific to an irrigation controller and matter more than
+#  anything else in the file (see `reboot_timeout` below).
+# =============================================================================
+
+esphome:
+  name: ${node_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    # esp-idf, not Arduino: >=135 KB smaller binary for an identical config,
+    # and direct access to esp_timer / PCNT / NVS, which the guard and the
+    # future water meter both need.
+    #
+    # ESPHome suggests two `advanced:` options at boot. Both are DECLINED, on
+    # purpose -- recorded here so nobody "fixes" it later:
+    #
+    #   minimum_chip_revision: "3.1"  -- would shrink the binary, but locks the
+    #     firmware to rev >= 3.1 silicon. NFR-L2 requires pre-flashed spare
+    #     ESP32s on the shelf, and a spare may well be rev 1.0 or 3.0; it would
+    #     simply not boot.
+    #
+    #   sram1_as_iram: true  -- gains ~40 KB of IRAM by taking it from DRAM.
+    #     Wrong direction here: the constrained resource is the DRAM heap
+    #     (entities, API buffers, fragmentation -- NFR-R8, R24), not IRAM.
+    type: esp-idf
+
+# -----------------------------------------------------------------------------
+#  Connectivity
+#
+#  The two `reboot_timeout: 0s` lines below are the most important settings in
+#  this file. Both default to 15 min, which means a stock ESPHome config
+#  REBOOTS THE CONTROLLER EVERY QUARTER HOUR for as long as Wi-Fi or Home
+#  Assistant is unavailable -- silently ending the season's watering. D3 and
+#  P3b ("a network fault is not a water fault") make disabling them a stated
+#  requirement, not a tuning preference.
+#
+#  Verified alongside it: nothing else in ESPHome is gated on API
+#  connectivity -- `application.cpp` has zero references to `api`, and
+#  `APIServer` has no `can_proceed()` override -- so switches, intervals,
+#  scripts and the scheduler all keep running with no client connected. The
+#  reboot timer is the *only* consequence, and `0s` removes it. [V]
+# -----------------------------------------------------------------------------
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 0s
+  ap:
+    ssid: ${node_name}-fallback
+    password: !secret sprinkler_ota_password
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret sprinkler_api_key
+  reboot_timeout: 0s
+
+logger:
+  level: INFO
+
+# -----------------------------------------------------------------------------
+#  Time
+#
+#  SNTP only, in this bootstrap. A battery-backed RTC is REQUIRED by FR-1.3 and
+#  by the v0 exit criteria, and packages/rtc-ds3231.yaml is written and ready --
+#  it is left out of the default include list only because the module may not be
+#  in hand yet. Until it is fitted, a power cut loses the date and the scheduler
+#  correctly refuses every scheduled run until SNTP returns (fault-policy row 6).
+#  That is the honest behaviour, and it is exactly why the RTC is mandatory
+#  rather than optional.
+# -----------------------------------------------------------------------------
+time:
+  - platform: sntp
+    id: device_time
+    # A named zone, never a fixed offset: Europe/Paris shifts twice a year and a
+    # schedule stored as UTC+2 would water an hour off for half the year.
+    timezone: !secret sprinkler_timezone
+    servers:
+      # LAN gateway first, so the clock survives a WAN outage.
+      - 192.168.0.1
+      - pool.ntp.org
+
+# -----------------------------------------------------------------------------
+#  Diagnostics -- the watch-thresholds from docs/07-firmware.md
+#
+#  Alarm on `block` (largest free contiguous block), NOT on `free`: every
+#  documented ESPHome field failure is a contiguity failure at the size of the
+#  config's largest single allocation, never a total-free-bytes failure.
+# -----------------------------------------------------------------------------
+debug:
+  update_interval: 60s
+
+sensor:
+  - platform: debug
+    free:
+      name: "Heap free"
+    block:
+      name: "Heap largest block"
+    fragmentation:
+      name: "Heap fragmentation"
+    loop_time:
+      name: "Loop time"
+  - platform: uptime
+    name: "Uptime"
+  - platform: wifi_signal
+    name: "Wi-Fi signal"
+    update_interval: 120s
+
+text_sensor:
+  - platform: debug
+    device:
+      name: "Device info"
+    reset_reason:
+      name: "Last reset reason"
+  - platform: version
+    name: "ESPHome version"
+  - platform: wifi_info
+    ip_address:
+      name: "IP address"
+    ssid:
+      name: "SSID"
+
+binary_sensor:
+  # This is what the HA-side availability watchdog (FR-9.4) triggers on -- a
+  # dead controller cannot raise its own alarm.
+  - platform: status
+    name: "Status"
+
+button:
+  - platform: restart
+    name: "Restart"
+    entity_category: diagnostic

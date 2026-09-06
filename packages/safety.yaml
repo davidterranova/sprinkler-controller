@@ -1,0 +1,95 @@
+# =============================================================================
+#  L0/L1 -- the safety layer
+#
+#  This file and components/irrigation_guard/ are what deliver P0: "the system
+#  must never end up in a state with an electric valve remaining open."
+#  Everything else in the repo yields to it.
+#
+#  Note what is NOT here: the hardware. The deadman circuit (a 74HCT14 buffer
+#  driving a retriggerable monostable) and the latching max-runtime backstop on
+#  the zone-side common are physical parts, and the firmware's heartbeat is
+#  useless without them. Verification item E6 -- prove the rail de-energises
+#  under a *deliberately hung* firmware, not by pulling power -- gates
+#  connecting any valve.
+# =============================================================================
+
+irrigation_guard:
+  id: guard
+  # The deadman. Toggled ONLY from an independent esp_timer callback that
+  # checks a counter the main loop increments -- never from LEDC (which
+  # free-runs in hardware and would keep the rail enabled through a total
+  # firmware hang) and never from loop() (whose 16 ms interval caps the rate at
+  # ~31 Hz). See the long comment in irrigation_guard.h.
+  heartbeat_pin: ${deadman_pin}
+  heartbeat_period: 25ms
+  liveness_timeout: 400ms
+
+  # The master valve stays on a direct GPIO and on a physically separate relay
+  # module, deliberately: an I2C lock-up (a slave holding SDA low -- a real
+  # event in a noisy 24 VAC box) must still leave the firmware able to close the
+  # series element and stop all water.
+  #
+  # `allow_other_uses: true` on every valve pin is not a workaround -- it is the
+  # design, stated explicitly. The GPIO switches own these pins for normal
+  # operation and the guard writes the same pins raw, on purpose, because the
+  # stock component's all_valves_off_() only writes a pin **if the switch's
+  # cached state is true** [V]. Exactly when cache and reality have diverged,
+  # "close everything" would close nothing. The deadman pin below is NOT shared.
+  master_pin:
+    number: ${master_pin}
+    allow_other_uses: true
+  zone_pins:
+    # A block sequence, not a flow one: `${...}` inside `[ ]` makes the YAML
+    # parser think a mapping is starting, because substitutions are applied
+    # after the document is parsed.
+    - number: ${zone_1_pin}
+      allow_other_uses: true
+    - number: ${zone_2_pin}
+      allow_other_uses: true
+    - number: ${zone_3_pin}
+      allow_other_uses: true
+    - number: ${zone_4_pin}
+      allow_other_uses: true
+  active_low: ${relay_active_low}
+
+  # The absolute per-run ceiling, enforced from a code path the scheduler
+  # cannot reach. Set to ~1.5x the longest legitimate single-zone run, per
+  # docs/05-hardware.md. It is a BACKSTOP: if it ever fires, the sequencer has
+  # failed and that is a CRITICAL, not a routine end-of-run.
+  max_run_duration: 60min
+
+  on_trip:
+    - logger.log:
+        level: ERROR
+        format: "GUARD TRIPPED on zone %u -- everything forced closed"
+        args: ["zone"]
+    - lambda: |-
+        id(sched)->latch_critical(std::string("guard: ") + id(guard)->trip_reason_str());
+
+safe_mode:
+  # After this long, the boot counts as good and the counter resets.
+  boot_is_good_after: 5min
+  on_safe_mode:
+    # Risk R1. In safe mode the switch platform never runs and the guard is
+    # never constructed, so this lambda is the ONLY thing that will ever put
+    # the pins in a safe state. It writes them through raw IDF calls with no
+    # component and no cached state in the path.
+    # The pin list comes from the guard's own codegen, so it cannot drift out
+    # of step with the config above. The heartbeat pin is deliberately NOT
+    # touched: in safe mode the application is by definition not healthy, so
+    # the rail must be allowed to drop.
+    - lambda: "esphome::irrigation_guard::panic_close_all();"
+
+ota:
+  - platform: esphome
+    password: !secret sprinkler_ota_password
+    on_begin:
+      # OTA does not merely block the main loop -- it calls App.feed_wdt()
+      # inside its own blocking loop [V], so the task watchdog is deliberately
+      # silenced while the run supervisor is stopped. Neither the software
+      # deadline nor the watchdog is enforcing anything during an update.
+      # Everything therefore closes first, and the hardware deadman covers the
+      # rest.
+      - lambda: |-
+          id(sched)->stop();
+          id(guard)->hard_close_all();
