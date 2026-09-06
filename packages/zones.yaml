@@ -16,6 +16,26 @@
 #  pin map. When the build grows to eight zones on an expander, the guard's
 #  zone_pins list shrinks to the master and the deadman does the rest -- which
 #  is what the hardware doc already says it does.
+#
+#  ## Why every switch below is internal
+#
+#  FR-10.1: a manual run is "run zone N for M minutes", never "open zone N".
+#  The stock component's per-valve control switches ARE "open zone N" exposed
+#  to Home Assistant -- turning one on calls start_single_valve() directly,
+#  bypassing the supervisor's hold, winter, lockout, zone-lockout and
+#  daily-budget checks (FR-10.6). The main switch bypasses them the same way
+#  via resume_or_start_full_cycle().
+#
+#  So none of them is published. Home Assistant reaches the valves only through
+#  the supervised paths in packages/ui.yaml -- *Start manual run* and *Test all
+#  zones* -- and observes state through `State`, `Watering` and `Active zone`.
+#  Nothing is lost, and the refusals become unbypassable rather than merely
+#  usually-honoured.
+#
+#  The per-valve `enable_switch` entities are internal for a second reason:
+#  they are scheduler *outputs*, rewritten from the resolved plan at the start
+#  of every cycle. Exposing a control that is silently overwritten each morning
+#  is worse than not exposing it.
 # =============================================================================
 
 switch:
@@ -80,12 +100,13 @@ sprinkler:
   - id: sequencer
     main_switch:
       name: "Irrigation"
+      internal: true
     auto_advance_switch:
       name: "Auto advance"
       internal: true
     standby_switch:
       name: "Standby"
-      entity_category: config
+      internal: true
 
     # The settle gap between zones. Five to ten seconds is the hydraulic
     # requirement -- zone N's diaphragm must be seated and the pressure
@@ -106,24 +127,24 @@ sprinkler:
     # scheduler sets both programmatically from a plan that irrigation_core has
     # already validated, and neither is reachable from Home Assistant.
     valves:
-      - valve_switch: "Zone 1"
+      - valve_switch: {name: "Zone 1", internal: true}
         valve_switch_id: zone_1_output
-        enable_switch: "Zone 1 in cycle"
+        enable_switch: {name: "Zone 1 in cycle", internal: true}
         run_duration: 900s
         pump_switch_id: master_output
-      - valve_switch: "Zone 2"
+      - valve_switch: {name: "Zone 2", internal: true}
         valve_switch_id: zone_2_output
-        enable_switch: "Zone 2 in cycle"
+        enable_switch: {name: "Zone 2 in cycle", internal: true}
         run_duration: 900s
         pump_switch_id: master_output
-      - valve_switch: "Zone 3"
+      - valve_switch: {name: "Zone 3", internal: true}
         valve_switch_id: zone_3_output
-        enable_switch: "Zone 3 in cycle"
+        enable_switch: {name: "Zone 3 in cycle", internal: true}
         run_duration: 900s
         pump_switch_id: master_output
-      - valve_switch: "Zone 4"
+      - valve_switch: {name: "Zone 4", internal: true}
         valve_switch_id: zone_4_output
-        enable_switch: "Zone 4 in cycle"
+        enable_switch: {name: "Zone 4 in cycle", internal: true}
         run_duration: 900s
         pump_switch_id: master_output
 
