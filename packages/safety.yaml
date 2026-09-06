@@ -50,6 +50,14 @@ irrigation_guard:
       allow_other_uses: true
     - number: ${zone_4_pin}
       allow_other_uses: true
+    - number: ${zone_5_pin}
+      allow_other_uses: true
+    - number: ${zone_6_pin}
+      allow_other_uses: true
+    - number: ${zone_7_pin}
+      allow_other_uses: true
+    - number: ${zone_8_pin}
+      allow_other_uses: true
   active_low: ${relay_active_low}
 
   # The absolute per-run ceiling, enforced from a code path the scheduler

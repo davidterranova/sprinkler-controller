@@ -1,0 +1,63 @@
+# =============================================================================
+#  The Home Assistant entities for ONE zone.
+#
+#  Included once per zone from sprinkler.yaml with `vars`, because eight
+#  hand-written copies of this block is eight chances to write
+#  `stage_zone_minutes(0, 5, x)` under a heading that says "Zone 7" -- an
+#  off-by-one that no test would catch and that would water the wrong bed all
+#  season.
+#
+#    zone   1-based, for display
+#    index  0-based, what the firmware indexes by
+# =============================================================================
+
+switch:
+  - platform: template
+    name: "Zone ${zone} enabled"
+    entity_category: config
+    lambda: "return id(sched)->staged().zone_enabled[${index}];"
+    turn_on_action:
+      - lambda: "id(sched)->stage_zone_enabled(${index}, true);"
+    turn_off_action:
+      - lambda: "id(sched)->stage_zone_enabled(${index}, false);"
+
+number:
+  # 0 minutes means "this zone is not part of that program" -- which is how a
+  # zone that exists in hardware but is not planted yet stays wired, testable
+  # and silent.
+  - platform: template
+    name: "P1 zone ${zone} minutes"
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 120
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[0].zone_minutes[${index}];"
+    set_action:
+      - lambda: "id(sched)->stage_zone_minutes(0, ${index}, (uint16_t) x);"
+
+  - platform: template
+    name: "P2 zone ${zone} minutes"
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 120
+    step: 1
+    entity_category: config
+    update_interval: 30s
+    lambda: "return id(sched)->staged().programs[1].zone_minutes[${index}];"
+    set_action:
+      - lambda: "id(sched)->stage_zone_minutes(1, ${index}, (uint16_t) x);"
+
+sensor:
+  # FR-7.3: numeric with a state_class, because HA's recorder purges detail
+  # after ~10 days and only state_class sensors reach long-term statistics.
+  # Also the proof that the daily per-zone budget is real.
+  - platform: template
+    name: "Zone ${zone} run time today"
+    unit_of_measurement: s
+    device_class: duration
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: "return id(sched)->zone_seconds_today(${index});"

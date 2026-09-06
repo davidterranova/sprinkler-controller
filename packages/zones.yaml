@@ -1,21 +1,24 @@
 # =============================================================================
 #  L2 -- the outputs and the stock sequencer
 #
-#  ## Why direct GPIO for the zones in v0, when the design says PCF8574
+#  Eight zones on direct GPIO, plus the master valve. The board is physically
+#  eight relays; how many are *planted* is a schedule question, and a zone with
+#  0 minutes in every program never runs. That separation matters for safety:
+#  the guard must know about every pin that can reach a relay coil, whether or
+#  not anything is growing on the other end of it.
 #
-#  docs/05-hardware.md recommends an expander for the eight production zones,
-#  and is candid that its contribution to P0 is close to zero: it eliminates the
-#  GPIO12 boot-brick hazard and halves the wiring, but on a CPU reset its output
-#  latch survives exactly as a GPIO does. On the bench there are four zones, no
-#  wiring loom, and one property that matters more: **the guard can only
-#  hard-close pins it can write directly.** Behind an I2C expander the guard's
-#  raw sweep would cover the master valve and nothing else, which is precisely
-#  the wrong trade for the layer that exists to prove fail-closed.
+#  ## Why the zones are on direct GPIO
 #
-#  So: direct GPIO on the bench, from the all-direct fallback pin set in the
-#  pin map. When the build grows to eight zones on an expander, the guard's
-#  zone_pins list shrinks to the master and the deadman does the rest -- which
-#  is what the hardware doc already says it does.
+#  **The guard can only hard-close pins it writes directly.** Its raw sweep is
+#  the layer whose entire job is proving fail-closed, so every pin that can
+#  reach a coil has to be one the guard owns -- and that includes the case the
+#  sweep exists for, where the main loop is hung and nothing cooperative runs.
+#
+#  The pin set comes straight from the pin map and none of the eight is a
+#  strapping pin, so the GPIO12 boot-brick hazard does not arise in the
+#  firmware. It remains a *wiring* hazard: GPIO12 sits next to GPIO13 on the
+#  30-pin header, and a relay IN line landing there holds MTDI high at reset
+#  through the board's own 1 kOhm pull-up. Label that pin in the enclosure.
 #
 #  ## Why every switch below is internal
 #
@@ -29,8 +32,8 @@
 #  So none of them is published. Home Assistant reaches the valves only through
 #  the supervised paths in packages/ui.yaml -- *Start manual run* and *Test all
 #  zones* -- and observes state through `State`, `Watering` and `Active zone`.
-#  Nothing is lost, and the refusals become unbypassable rather than merely
-#  usually-honoured.
+#  Nothing is lost, sixteen entities are saved, and the refusals become
+#  unbypassable rather than merely usually-honoured.
 #
 #  The per-valve `enable_switch` entities are internal for a second reason:
 #  they are scheduler *outputs*, rewritten from the resolved plan at the start
@@ -39,13 +42,9 @@
 # =============================================================================
 
 switch:
-  # The raw outputs. Internal: Home Assistant drives the *sequencer*, never a
-  # pin. FR-10.1 -- a manual run is "run zone N for M minutes", never "open
-  # zone N", and an exposed pin switch is exactly the unbounded open this
-  # project refuses to offer.
-  #
-  # restore_mode is ALWAYS_OFF on every one of them (FR-3.2): no valve state is
-  # ever restored from persistence, whatever the last power cut interrupted.
+  # The raw outputs. restore_mode is ALWAYS_OFF on every one of them (FR-3.2):
+  # no valve state is ever restored from persistence, whatever the last power
+  # cut interrupted.
   - platform: gpio
     id: zone_1_output
     internal: true
@@ -62,7 +61,6 @@ switch:
     pin:
       number: ${zone_2_pin}
       inverted: ${relay_active_low}
-      # Shared with irrigation_guard on purpose -- see packages/safety.yaml.
       allow_other_uses: true
   - platform: gpio
     id: zone_3_output
@@ -71,7 +69,6 @@ switch:
     pin:
       number: ${zone_3_pin}
       inverted: ${relay_active_low}
-      # Shared with irrigation_guard on purpose -- see packages/safety.yaml.
       allow_other_uses: true
   - platform: gpio
     id: zone_4_output
@@ -80,12 +77,49 @@ switch:
     pin:
       number: ${zone_4_pin}
       inverted: ${relay_active_low}
-      # Shared with irrigation_guard on purpose -- see packages/safety.yaml.
+      allow_other_uses: true
+  - platform: gpio
+    id: zone_5_output
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: ${zone_5_pin}
+      inverted: ${relay_active_low}
+      allow_other_uses: true
+  - platform: gpio
+    id: zone_6_output
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: ${zone_6_pin}
+      inverted: ${relay_active_low}
+      allow_other_uses: true
+  - platform: gpio
+    id: zone_7_output
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: ${zone_7_pin}
+      inverted: ${relay_active_low}
+      allow_other_uses: true
+  - platform: gpio
+    id: zone_8_output
+    internal: true
+    restore_mode: ALWAYS_OFF
+    pin:
+      number: ${zone_8_pin}
+      inverted: ${relay_active_low}
       allow_other_uses: true
 
   # The master valve: the series element of the hydraulic AND gate. Watering
   # requires two independent circuits to both work, which restores fail-closed
   # even against a welded zone relay.
+  #
+  # With all eight channels of the relay board taken by zones, this needs the
+  # separate 2-channel module docs/05-hardware.md specifies -- which is the
+  # point of it, not an inconvenience: a physically separate board with its own
+  # feed and its own driver pin means no single board-level common-cause
+  # failure can weld a zone relay AND the master closed at once.
   - platform: gpio
     id: master_output
     internal: true
@@ -93,7 +127,6 @@ switch:
     pin:
       number: ${master_pin}
       inverted: ${relay_active_low}
-      # Shared with irrigation_guard on purpose -- see packages/safety.yaml.
       allow_other_uses: true
 
 sprinkler:
@@ -145,6 +178,26 @@ sprinkler:
       - valve_switch: {name: "Zone 4", internal: true}
         valve_switch_id: zone_4_output
         enable_switch: {name: "Zone 4 in cycle", internal: true}
+        run_duration: 900s
+        pump_switch_id: master_output
+      - valve_switch: {name: "Zone 5", internal: true}
+        valve_switch_id: zone_5_output
+        enable_switch: {name: "Zone 5 in cycle", internal: true}
+        run_duration: 900s
+        pump_switch_id: master_output
+      - valve_switch: {name: "Zone 6", internal: true}
+        valve_switch_id: zone_6_output
+        enable_switch: {name: "Zone 6 in cycle", internal: true}
+        run_duration: 900s
+        pump_switch_id: master_output
+      - valve_switch: {name: "Zone 7", internal: true}
+        valve_switch_id: zone_7_output
+        enable_switch: {name: "Zone 7 in cycle", internal: true}
+        run_duration: 900s
+        pump_switch_id: master_output
+      - valve_switch: {name: "Zone 8", internal: true}
+        valve_switch_id: zone_8_output
+        enable_switch: {name: "Zone 8 in cycle", internal: true}
         run_duration: 900s
         pump_switch_id: master_output
 

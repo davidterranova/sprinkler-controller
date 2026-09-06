@@ -12,7 +12,12 @@ irrigation_scheduler:
   sprinkler_id: sequencer
   guard_id: guard
   time_id: device_time
-  zone_count: 4
+  # Eight, because eight relays are wired. How many are actually *planted* is
+  # a schedule question -- a zone with 0 minutes in every program never runs,
+  # and the resolver excludes it from the plan entirely. Declaring fewer than
+  # are wired would only mean the firmware refused to address a pin that can
+  # still reach a relay coil.
+  zone_count: 8
 
   # How long after a missed start a program may still begin. Bounded on
   # purpose: a controller that was off all morning must NOT start the 05:00
