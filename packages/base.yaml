@@ -83,8 +83,19 @@ time:
     # schedule stored as UTC+2 would water an hour off for half the year.
     timezone: !secret sprinkler_timezone
     servers:
-      # LAN gateway first, so the clock survives a WAN outage.
-      - 192.168.0.1
+      # There is no LAN NTP source on this network to put first. Verified
+      # 2026-09-06: the UDM-Pro answers UDP/123 on no VLAN (192.168.4.1 and
+      # 192.168.0.1 both time out against a probe that public servers answer),
+      # and `dhcpd_ntp_enabled` is false on the IoT VLAN this board sits on.
+      # A dead entry here is worse than none -- lwIP works the list in index
+      # order and a first server that never replies starves the one that would.
+      # The pool controller, same VLAN, same stack, keeps correct time on the
+      # plain default, so this is the list that is known to work here.
+      #
+      # It does mean the clock depends on the WAN, which is exactly what the
+      # "network fault is not a water fault" principle refuses. The fix for
+      # that is not a better server list -- it is the DS3231 required by FR-1.3
+      # and already written up in packages/rtc-ds3231.yaml.
       - pool.ntp.org
 
 # -----------------------------------------------------------------------------
