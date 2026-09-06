@@ -4,7 +4,10 @@ An ESP32-based irrigation controller driving up to **8 independent watering netw
 electrically actuated valves, executing its schedule **autonomously**, monitored and configured from
 **Home Assistant**, and **failing closed** on every fault class.
 
-> **Status: requirements & design phase. No code written, no hardware purchased.**
+> **Status: v0 bench firmware built (2026-09-05). No hardware purchased, no water anywhere.**
+> Four zones, LEDs where the solenoids will go. `make test` runs 61 host unit tests including a
+> DST table and a full simulated season; `make build` compiles the firmware. What remains for v0 is
+> the hardware demonstration checklist in [§21](docs/21-bench-procedure.md).
 > The specification lives in [`docs/`](docs/). Items marked **[V]** were verified against source,
 > datasheets, or the live Home Assistant instance; **[E]** are estimates; open questions are tracked in
 > the [verification backlog](docs/16-verification-backlog.md).
@@ -69,6 +72,7 @@ deadman — not from firmware.
 | [16. Verification backlog](docs/16-verification-backlog.md) | Every unverified claim, with the concrete check that resolves it. |
 | [17. Repository layout](docs/17-repository-layout.md) | Where code, tests, YAML and docs will live. |
 | [18. Changelog](docs/18-changelog.md) | What changed in the spec, and why. |
+| **[21. v0 bench procedure](docs/21-bench-procedure.md)** | **The v0 exit criteria as a checklist** — every fault-policy row, the three go/no-go board tests, and what v0 deliberately does not cover. |
 | **[20. Component summary](docs/20-component-summary.md)** | **Start here for shopping.** One line per component, mandatory first, optional grouped by purpose so each option's cost is visible. |
 | [19. Bill of materials](docs/19-bill-of-materials.md) | The full working: per component mandatory/optional, role, minimal/recommended/robust and a pick, with 166 verified prices. |
 

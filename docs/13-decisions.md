@@ -28,6 +28,7 @@ Roughly in order of how much of the design collapses if the assumption is wrong.
 
 | # | Decision | Why it matters |
 |---|---|---|
+| **D17** ⏸ | **How long after a missed start may a program still begin?** v0 ships a **60-minute catch-up window**; the requirements name `catch-up` as a run source (FR-7.2) but never bound it. | The two ends are both wrong. Zero means a router reboot at 05:00 costs the day's watering. Unbounded means a fortnight's outage becomes a night of continuous watering — the failure the whole design exists to prevent. 60 min is the smallest value that survives a short power cut or an AP restart. **Not blocking**: it is one line in `packages/scheduler.yaml` and the resolver takes it as a parameter, so changing it needs no code. Worth an explicit answer before v1, because it is the only scheduling behaviour in the firmware that no requirement states. |
 | **D12** ⏸ | **Does your commune's *règlement de service* require a disconnecteur BA? Does it accept a sous-compteur for the assainissement deduction?** — *deliberately left open.* | One phone call, whenever convenient. A €150–400 component decision and a possible recurring bill saving. **Not blocking**: plumb a removable spool piece at the piquage so a BA can be fitted later without cutting pipe. Becomes non-optional if fertigation is ever added (NFR-LEG10). |
 
 ---

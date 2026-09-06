@@ -17,7 +17,7 @@ own FreeRTOS task.
 | **L3 Scheduler** | Persisted schedule, due evaluation, catch-up, hold, deviation, alarm latches *(no window/overrun policy — D4)* | Custom `irrigation_scheduler` |
 | **L4 Metering** | Pulse capture, K-factor, per-zone attribution, totals, volume termination | Custom `water_meter` |
 | **L5 HA** | Config UI, dashboards, statistics, notifications. **Never in the control path.** | ESPHome native API |
-| **L6 Core** | Schedule resolver + FSM as pure functions over an injected clock | `lib/irrigation_core/` — zero ESPHome includes, host-unit-tested |
+| **L6 Core** | Schedule resolver + FSM as pure functions over an injected clock | `components/irrigation_core/` — zero ESPHome includes, host-unit-tested |
 
 ## What the stock `sprinkler` component already gives you [V]
 
@@ -199,7 +199,7 @@ production (~150 KB **[E]**, and NFR-SEC4 already wants it off), and keep the `e
 
 ## Testing
 
-- **Extract the pure logic** into `lib/irrigation_core/` — the single highest-leverage architectural
+- **Extract the pure logic** into `components/irrigation_core/` — the single highest-leverage architectural
   decision here. Unit-test the resolver and FSM against a table covering DST spring-forward and
   fall-back, month/year boundaries, leap day, a 31-day month, interval-vs-weekday interaction, window
   overflow, and rotation.
