@@ -63,6 +63,50 @@ Three sharp edges in the stock component to guard against **[V]**:
   `MAX_RUN_MS` in the guard.
 - Queued valves ignore `enable_switch`, and `multiplier = 0` silently prevents any valve starting.
 
+## Modes, phases and the three verbs
+
+Two orthogonal pieces of state, deliberately kept apart. **Mode** says what the device is *allowed*
+to do and survives a reboot; **phase** says what it is *doing* and never does — a valve state is
+never restored from persistence (FR-3.2), so every boot lands in `IDLE` with everything closed.
+
+Collapsing Hold, Pause and Stop into one button is the single most common way an irrigation UI goes
+wrong, so [FR-8](02-functional-requirements.md#fr-8--pause--hold--stop) names three verbs and these
+diagrams show that they act on two different dimensions: **Hold changes the mode, Pause changes the
+phase, Stop changes the phase, and Winter changes the mode *and* aborts the phase.**
+
+```mermaid
+stateDiagram-v2
+    [*] --> NORMAL: boot with nothing persisted<br/>(FR-8.6 — never boot held)
+    NORMAL --> HOLD: hold(duration, by whom)<br/>schedule nothing new, manual still allowed
+    HOLD --> NORMAL: released, or expired<br/>(warned 24 h ahead, max 7 days)
+    NORMAL --> WINTER: winter on
+    HOLD --> WINTER: winter on
+    WINTER --> NORMAL: winter off
+    note right of WINTER
+        The only unbounded stop, and it blocks
+        manual runs too: the pipes are drained.
+    end note
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE: every boot, unconditionally
+    IDLE --> RUNNING: started() — a zone is open
+    RUNNING --> PAUSED: pause()
+    PAUSED --> RUNNING: resume()
+    PAUSED --> IDLE: 30 min max-suspend elapsed ⇒ Stop
+    RUNNING --> IDLE: finished, stop(), winter on,<br/>or a latched CRITICAL
+    note right of PAUSED
+        A pause that outlives its timeout becomes
+        a Stop: resuming would reopen a valve
+        nobody is watching.
+    end note
+```
+
+The forgotten hold is how gardens die, and its failure mode is silent — which is why even an
+"indefinite" hold is clamped to seven days, warned about 24 h ahead, and attributed to whoever set it
+(FR-8.3/8.4/8.7).
+
 ## Time and scheduling
 
 - **Never use a schedule edge as the source of truth.** ESPHome's `on_time` cron trigger does bounded
@@ -92,6 +136,52 @@ Three sharp edges in the stock component to guard against **[V]**:
   Better still, schedule relative to sunrise — computable offline from lat/long, and immune to the EU
   possibly abolishing seasonal clock changes.
 
+### The minute tick, end to end
+
+Everything above becomes one loop that runs once per civil minute and is safe to run twice. Note what
+is *not* in it: no timer callback owns a run, no edge is remembered, and nothing here reaches the
+valves except through the refusal ladder.
+
+```mermaid
+flowchart TD
+    TICK(["A new civil minute — a tick, never a schedule edge"])
+    ROLL["Roll the per-day, per-zone budget if the date changed"]
+    SUP["Supervisor::tick — hold expiry, the 24 h expiry warning, the pause timeout"]
+    PAUSE{"Paused for longer than 30 min?"}
+    STOP["Stop, and say so. A pause never resumes itself"]
+    BUSY{"Cycle already running,<br/>or clock untrusted?"}
+    IDLE(["Nothing to do this minute"])
+    RESOLVE["<b>resolve()</b> — pure function of schedule, persisted run state and local time.<br/>For each enabled program: has start_minute passed today, do the weekday mask and<br/>the every-N-days interval accept it, and which of its zones are still undone today?"]
+    DUE{"Due?"}
+    CAN["<b>can_start()</b> — the refusal ladder, in this order:<br/>crash-loop brake → winter → latched CRITICAL → zone exists<br/>→ zone not locked out → zone enabled → clock trusted → hold<br/>→ duration cap → a cycle is already running"]
+    SKIP["Record the named outcome — skipped_held, skipped_winter, skipped_clock,<br/>skipped_still_running, skipped_locked_out — and mark the program done for<br/>today, so one skip is logged once rather than once a minute"]
+    PLAN["Order the plan: priority ascending, rotating within each priority group by day number"]
+    CLAMP["clamp_run_seconds() per zone: min(requested, 130 min ceiling, budget left today).<br/>A zone clamped to zero is dropped and recorded skipped_budget"]
+    RUN(["Hand the plan to the sequencer: enable exactly the planned zones,<br/>multiplier fixed at 1, then start_full_cycle()"])
+
+    TICK --> ROLL --> SUP --> PAUSE
+    PAUSE -->|"yes"| STOP
+    PAUSE -->|"no"| BUSY
+    BUSY -->|"yes"| IDLE
+    BUSY -->|"no"| RESOLVE --> DUE
+    DUE -->|"NOT_DUE"| IDLE
+    DUE -->|"DUE — this is the start minute"| CAN
+    DUE -->|"DUE_CATCH_UP — the start was missed,<br/>but under 60 min ago and still today"| CAN
+    CAN -->|"refused"| SKIP
+    CAN -->|"allowed"| PLAN --> CLAMP --> RUN
+```
+
+Two properties are worth stating explicitly, because they are what the shape of this loop buys:
+
+- **Idempotence.** The answer depends only on persisted state and the clock, so a duplicated tick, a
+  reboot, a two-week outage and a DST repeat all produce the same decision. The catch-up branch is
+  bounded (60 min, and never across midnight) precisely so that "catch up whatever you missed" cannot
+  turn a fortnight's outage into a night of continuous watering.
+- **A skip is an outcome with a name, not silence** (FR-7.2). Every branch that declines to water
+  writes a record, so a gap in the history is always explicable — which is the difference between a
+  system you can trust with a garden and one you check on.
+
+
 ## Persistence and flash wear
 
 - Flash wear is **a non-issue at ESPHome's default 60 s `flash_write_interval`** (~47 k writes/year
@@ -118,6 +208,38 @@ Three sharp edges in the stock component to guard against **[V]**:
 The boot order is: raw GPIO sweep + deadman off at priority 800 → guard `setup()` with
 `guard_armed_ = false`, read `esp_reset_reason()` and the persisted run record → metering restores its
 total and re-seeds the counter *before* counting resumes → scheduler evaluates due-ness.
+
+```mermaid
+flowchart TD
+    RESET(["Reset — power-on, watchdog, panic, OTA or a deliberate restart"])
+    SWEEP["<b>priority 800: raw GPIO sweep.</b> Every zone pin and the master driven to<br/>de-energised unconditionally, with no reference to any cached switch state,<br/>and the deadman heartbeat held low"]
+    GUARD["Guard setup(): configure the outputs, create the esp_timer deadman, armed = false.<br/>If the timer cannot be created the component is marked <b>failed</b> — without it<br/>there is no P0 guarantee, so this is an error, not a warning"]
+    LOAD["Load the schedule: two CRC-checked banks, highest valid sequence wins"]
+    BANK{"Any bank valid?"}
+    DEFAULT["Fall back to defaults — <b>every program disabled</b>. A device that has never<br/>been configured must not invent a watering plan (FR-2.4)"]
+    STATE["Restore the supervisor state: mode, hold and its expiry, latched CRITICAL,<br/>zone lockout mask. <b>Never a valve state</b> (FR-3.2), and hold defaults to OFF<br/>when nothing valid is stored (FR-8.6)"]
+    ACTIVE{"Was a run open<br/>at the last reset?"}
+    INTERRUPTED["Log it <b>interrupted</b> with what it actually delivered, then clear the record.<br/>Do not auto-resume: that turns one fault into a repeated one, and in a<br/>crash loop into an unbounded one"]
+    BOOTCNT["note_boot(): count reboots inside a 10-minute window"]
+    LOOP{"3rd reboot<br/>in the window?"}
+    BRAKE["<b>Crash-loop brake</b> (fault-policy row 14): everything closed, no irrigation,<br/>advertise the fault only. Cleared only by an attributed acknowledgement"]
+    METER["Metering restores its total and re-seeds the pulse counter <i>before</i> counting resumes"]
+    READY(["IDLE, everything closed. The next minute tick evaluates due-ness"])
+
+    RESET --> SWEEP --> GUARD --> LOAD --> BANK
+    BANK -->|"no"| DEFAULT --> STATE
+    BANK -->|"yes"| STATE
+    STATE --> ACTIVE
+    ACTIVE -->|"yes"| INTERRUPTED --> BOOTCNT
+    ACTIVE -->|"no"| BOOTCNT
+    BOOTCNT --> LOOP
+    LOOP -->|"yes"| BRAKE
+    LOOP -->|"no"| METER --> READY
+```
+
+Read the chart against **P0**: the first thing that happens after a reset — before the schedule, the
+clock, Wi-Fi or any component that could fail — is that every valve output is driven closed by code
+that consults nothing. Everything after that step can go wrong without water flowing.
 
 **Do not auto-resume an interrupted run.** It is the "obvious" design and it turns a single fault into
 a repeated one — and in a crash loop, into an unbounded one. Abandon, log, re-evaluate, and bound
