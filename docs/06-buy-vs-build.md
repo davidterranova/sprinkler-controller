@@ -91,10 +91,20 @@ liability**. TI's PCF8574 powers up with all I/Os high → inverter low → ULN2
 de-energised [V]**, and ESPHome's driver transmits all-off in `setup()` before any pin is configured
 **[V]**. A widely-cited HA thread documents a user abandoning **direct-GPIO** relays after one *"opened
 the garage door at 2 in the morning"* — *a pull-down did not fix it* — and moving to a PCF8574 exactly
-because its outputs stay inactive until the chip is initialised **[V]**. **So drive relays through an
-expander, not straight off ESP32 pins**, even in Custom-lite. *(What the expander does **not** fix: it
+because its outputs stay inactive until the chip is initialised **[V]**. *(What it does **not** fix: it
 has no reset pin, so on a watchdog reboot a relay that is ON stays ON until ESPHome asserts OFF. That
 is R1 again — the deadman remains mandatory on every candidate.)*
+
+> **Superseded for the build that was actually made (2026-09-06).** This finding is left in place
+> because the evidence behind it is sound, but it does not select the topology here, for two reasons
+> found later. **The boot-safe property it buys is already present without it:** on an *active-low*
+> opto board, the ESP32's verified *"pins are output-disabled during reset"* leaves every `IN` line
+> pulled up and every relay off, which is the same guarantee by a different route — and bench test
+> **T3** is what confirms it. The garage-door incident is an *active-high* failure, which is the
+> configuration that test exists to reject. **Against that stands a property an expander actively
+> costs you:** `irrigation_guard` can only hard-close pins it writes directly, so behind I²C its raw
+> sweep would cover the master valve and nothing else — and an I²C lock-up is exactly when you want
+> that sweep. The eight zones are therefore on direct GPIO; see [§7](05-hardware.md#pin-map).
 
 ## Two YAML lines that are safety requirements, not style
 

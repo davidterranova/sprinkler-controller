@@ -15,10 +15,16 @@
 #  Assistant, which is where FR-2.1 says rules are authored, and inventing it
 #  here would put a second source of truth on the device.
 #
-#  Entity budget: this file plus the sequencer and the diagnostics comes to
-#  roughly 85 entities against the ~130 the RAM analysis allows. Think twice
-#  before adding the next one -- the binding constraint is the ListEntities
-#  dump, not memory (docs/07-firmware.md).
+#  Per-zone entities are NOT here -- they come from packages/zone-ui.yaml,
+#  included once per zone with `vars`. Eight hand-written copies would be
+#  eight chances to write the wrong zone index under the right heading.
+#
+#  Entity budget: this file plus the per-zone packages, the sequencer and the
+#  diagnostics comes to ~91 HA-visible entities at eight zones, against the
+#  ~130 the analysis allows. Think twice before adding the next one -- the
+#  binding constraint is the ListEntities dump, not memory
+#  (docs/07-firmware.md), and this build runs ESPHome 2026.8.2, which predates
+#  the loop-stall fix in #18577.
 # =============================================================================
 
 number:
@@ -102,55 +108,6 @@ number:
     set_action:
       - lambda: "id(sched)->stage_program_repeats(0, (uint8_t) x);"
 
-  - platform: template
-    name: "P1 zone 1 minutes"
-    id: p1_z1
-    unit_of_measurement: min
-    min_value: 0
-    max_value: 120
-    step: 1
-    entity_category: config
-    update_interval: 30s
-    lambda: "return id(sched)->staged().programs[0].zone_minutes[0];"
-    set_action:
-      - lambda: "id(sched)->stage_zone_minutes(0, 0, (uint16_t) x);"
-  - platform: template
-    name: "P1 zone 2 minutes"
-    id: p1_z2
-    unit_of_measurement: min
-    min_value: 0
-    max_value: 120
-    step: 1
-    entity_category: config
-    update_interval: 30s
-    lambda: "return id(sched)->staged().programs[0].zone_minutes[1];"
-    set_action:
-      - lambda: "id(sched)->stage_zone_minutes(0, 1, (uint16_t) x);"
-  - platform: template
-    name: "P1 zone 3 minutes"
-    id: p1_z3
-    unit_of_measurement: min
-    min_value: 0
-    max_value: 120
-    step: 1
-    entity_category: config
-    update_interval: 30s
-    lambda: "return id(sched)->staged().programs[0].zone_minutes[2];"
-    set_action:
-      - lambda: "id(sched)->stage_zone_minutes(0, 2, (uint16_t) x);"
-  - platform: template
-    name: "P1 zone 4 minutes"
-    id: p1_z4
-    unit_of_measurement: min
-    min_value: 0
-    max_value: 120
-    step: 1
-    entity_category: config
-    update_interval: 30s
-    lambda: "return id(sched)->staged().programs[0].zone_minutes[3];"
-    set_action:
-      - lambda: "id(sched)->stage_zone_minutes(0, 3, (uint16_t) x);"
-
   # --- program 2 ----------------------------------------------------------
   - platform: template
     name: "P2 start hour"
@@ -212,55 +169,6 @@ number:
     lambda: "return id(sched)->staged().programs[1].repeats;"
     set_action:
       - lambda: "id(sched)->stage_program_repeats(1, (uint8_t) x);"
-  - platform: template
-    name: "P2 zone 1 minutes"
-    id: p2_z1
-    unit_of_measurement: min
-    min_value: 0
-    max_value: 120
-    step: 1
-    entity_category: config
-    update_interval: 30s
-    lambda: "return id(sched)->staged().programs[1].zone_minutes[0];"
-    set_action:
-      - lambda: "id(sched)->stage_zone_minutes(1, 0, (uint16_t) x);"
-  - platform: template
-    name: "P2 zone 2 minutes"
-    id: p2_z2
-    unit_of_measurement: min
-    min_value: 0
-    max_value: 120
-    step: 1
-    entity_category: config
-    update_interval: 30s
-    lambda: "return id(sched)->staged().programs[1].zone_minutes[1];"
-    set_action:
-      - lambda: "id(sched)->stage_zone_minutes(1, 1, (uint16_t) x);"
-  - platform: template
-    name: "P2 zone 3 minutes"
-    id: p2_z3
-    unit_of_measurement: min
-    min_value: 0
-    max_value: 120
-    step: 1
-    entity_category: config
-    update_interval: 30s
-    lambda: "return id(sched)->staged().programs[1].zone_minutes[2];"
-    set_action:
-      - lambda: "id(sched)->stage_zone_minutes(1, 2, (uint16_t) x);"
-  - platform: template
-    name: "P2 zone 4 minutes"
-    id: p2_z4
-    unit_of_measurement: min
-    min_value: 0
-    max_value: 120
-    step: 1
-    entity_category: config
-    update_interval: 30s
-    lambda: "return id(sched)->staged().programs[1].zone_minutes[3];"
-    set_action:
-      - lambda: "id(sched)->stage_zone_minutes(1, 3, (uint16_t) x);"
-
   # --- manual run ---------------------------------------------------------
   - platform: template
     # FR-10.1: a manual run is "run zone N for M minutes", never "open zone N".
@@ -297,7 +205,7 @@ select:
   - platform: template
     name: "Manual run zone"
     id: manual_zone
-    options: ["Zone 1", "Zone 2", "Zone 3", "Zone 4"]
+    options: ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6", "Zone 7", "Zone 8"]
     initial_option: "Zone 1"
     optimistic: true
     restore_value: true
@@ -322,39 +230,6 @@ switch:
       - lambda: "id(sched)->stage_program_enabled(1, true);"
     turn_off_action:
       - lambda: "id(sched)->stage_program_enabled(1, false);"
-
-  - platform: template
-    name: "Zone 1 enabled"
-    entity_category: config
-    lambda: "return id(sched)->staged().zone_enabled[0];"
-    turn_on_action:
-      - lambda: "id(sched)->stage_zone_enabled(0, true);"
-    turn_off_action:
-      - lambda: "id(sched)->stage_zone_enabled(0, false);"
-  - platform: template
-    name: "Zone 2 enabled"
-    entity_category: config
-    lambda: "return id(sched)->staged().zone_enabled[1];"
-    turn_on_action:
-      - lambda: "id(sched)->stage_zone_enabled(1, true);"
-    turn_off_action:
-      - lambda: "id(sched)->stage_zone_enabled(1, false);"
-  - platform: template
-    name: "Zone 3 enabled"
-    entity_category: config
-    lambda: "return id(sched)->staged().zone_enabled[2];"
-    turn_on_action:
-      - lambda: "id(sched)->stage_zone_enabled(2, true);"
-    turn_off_action:
-      - lambda: "id(sched)->stage_zone_enabled(2, false);"
-  - platform: template
-    name: "Zone 4 enabled"
-    entity_category: config
-    lambda: "return id(sched)->staged().zone_enabled[3];"
-    turn_on_action:
-      - lambda: "id(sched)->stage_zone_enabled(3, true);"
-    turn_off_action:
-      - lambda: "id(sched)->stage_zone_enabled(3, false);"
 
   - platform: template
     # FR-8.5. The one mode that blocks manual runs too, because the pipes are
@@ -529,42 +404,6 @@ sensor:
     accuracy_decimals: 0
     update_interval: 5s
     lambda: "return id(sched)->seconds_remaining();"
-  # FR-7.3: numeric, with a state_class, because HA's recorder purges detail
-  # after ~10 days and only state_class sensors reach long-term statistics.
-  # These are also the proof that the daily per-zone budget is real.
-  - platform: template
-    name: "Zone 1 run time today"
-    unit_of_measurement: s
-    device_class: duration
-    state_class: total_increasing
-    accuracy_decimals: 0
-    update_interval: 60s
-    lambda: "return id(sched)->zone_seconds_today(0);"
-  - platform: template
-    name: "Zone 2 run time today"
-    unit_of_measurement: s
-    device_class: duration
-    state_class: total_increasing
-    accuracy_decimals: 0
-    update_interval: 60s
-    lambda: "return id(sched)->zone_seconds_today(1);"
-  - platform: template
-    name: "Zone 3 run time today"
-    unit_of_measurement: s
-    device_class: duration
-    state_class: total_increasing
-    accuracy_decimals: 0
-    update_interval: 60s
-    lambda: "return id(sched)->zone_seconds_today(2);"
-  - platform: template
-    name: "Zone 4 run time today"
-    unit_of_measurement: s
-    device_class: duration
-    state_class: total_increasing
-    accuracy_decimals: 0
-    update_interval: 60s
-    lambda: "return id(sched)->zone_seconds_today(3);"
-
 text_sensor:
   - platform: template
     name: "State"

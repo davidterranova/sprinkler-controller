@@ -1,11 +1,18 @@
 # =============================================================================
 #  esp-sprinkler -- v0 BENCH configuration
 #
-#  This is the roadmap's v0: an ESP32, a relay board, and LEDs where the
-#  solenoids will go. Four zones plus a master, the stock `sprinkler` component
-#  for sequencing, a scheduler whose decisions are unit-tested on a host, and an
-#  independent guard that closes the outputs when the application stops proving
-#  it is alive.
+#  This is the roadmap's v0: an ESP32, an 8-channel relay board, and LEDs where
+#  the solenoids will go. Eight zones plus a master, the stock `sprinkler`
+#  component for sequencing, a scheduler whose decisions are unit-tested on a
+#  host, and an independent guard that closes the outputs when the application
+#  stops proving it is alive.
+#
+#  **Eight zones are wired; how many are planted is a schedule question.** A
+#  zone with 0 minutes in every program never runs -- the resolver leaves it out
+#  of the plan entirely -- so starting with four beds and growing costs a
+#  duration edit, not a firmware change. The guard, by contrast, knows about all
+#  eight pins from the first boot: a pin that can reach a relay coil is a pin
+#  the safety layer must be able to close, planted or not.
 #
 #  **No water. No valve. Nothing is plumbed.** The roadmap's guiding principle
 #  is that plumbing is the irreversible part, and the safety layer has to be
@@ -32,9 +39,9 @@ substitutions:
   friendly_name: Sprinkler Controller
 
   # --- pin map ------------------------------------------------------------
-  # The all-direct fallback set from docs/05-hardware.md, not the PCF8574 path:
-  # on the bench the guard must be able to hard-close every zone pin itself,
-  # and it can only write pins it owns directly. See the note in
+  # As wired, 2026-09-06 -- the direct-GPIO zone set from the pin map in
+  # docs/05-hardware.md. Every zone pin is one the guard owns and can write
+  # itself, which is what lets it hard-close all of them. See the note in
   # packages/zones.yaml.
   #
   # NEVER use GPIO 0, 1, 2, 3, 5, 6-11, 12 or 15. GPIO12 (MTDI) is the one that
@@ -46,6 +53,15 @@ substitutions:
   zone_2_pin: GPIO33
   zone_3_pin: GPIO25
   zone_4_pin: GPIO26
+  zone_5_pin: GPIO27
+  zone_6_pin: GPIO23
+  zone_7_pin: GPIO19
+  zone_8_pin: GPIO18
+  # The 9th channel. All eight relays on the board are taken by zones, so this
+  # is the separate 2-channel module from docs/05-hardware.md -- which is the
+  # point of it rather than an inconvenience: a physically separate board with
+  # its own feed and its own driver pin means no single board-level
+  # common-cause failure can weld a zone relay AND the master closed at once.
   master_pin: GPIO17
   deadman_pin: GPIO13
 
@@ -67,6 +83,16 @@ packages:
   zones: !include packages/zones.yaml
   scheduler: !include packages/scheduler.yaml
   ui: !include packages/ui.yaml
+  # One include per zone rather than eight copied blocks -- see the header of
+  # packages/zone-ui.yaml for why that matters more than it looks.
+  zone_1: !include {file: packages/zone-ui.yaml, vars: {zone: "1", index: "0"}}
+  zone_2: !include {file: packages/zone-ui.yaml, vars: {zone: "2", index: "1"}}
+  zone_3: !include {file: packages/zone-ui.yaml, vars: {zone: "3", index: "2"}}
+  zone_4: !include {file: packages/zone-ui.yaml, vars: {zone: "4", index: "3"}}
+  zone_5: !include {file: packages/zone-ui.yaml, vars: {zone: "5", index: "4"}}
+  zone_6: !include {file: packages/zone-ui.yaml, vars: {zone: "6", index: "5"}}
+  zone_7: !include {file: packages/zone-ui.yaml, vars: {zone: "7", index: "6"}}
+  zone_8: !include {file: packages/zone-ui.yaml, vars: {zone: "8", index: "7"}}
   # Fit the DS3231 and uncomment -- see the file's header for the two edits.
   # rtc: !include packages/rtc-ds3231.yaml
 

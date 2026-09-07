@@ -10,7 +10,7 @@
 esp-sprinkler/
 ├── README.md                      documentation index
 ├── Makefile                       test / gates / validate / build / flash / ota / logs / secrets
-├── sprinkler.yaml                 the v0 bench node -- 4 zones, LEDs, no water
+├── sprinkler.yaml                 the v0 bench node -- 8 zones wired, LEDs, no water
 ├── secrets.yaml.template           (secrets.yaml is gitignored)
 ├── .github/workflows/ci.yml       host tests -> source gates -> validate + compile
 ├── docs/
@@ -30,6 +30,7 @@ esp-sprinkler/
 │   ├── test_util.h                a ~60-line harness, so CI needs no dependency
 │   └── {resolver,fsm,guard,season}_test.cpp
 ├── packages/                      base · safety · zones · scheduler · ui · rtc-ds3231
+│                                  + zone-ui, included once per zone with vars
 ├── homeassistant/                 helper + automation + dashboard definitions [v1]
 └── hardware/                      schematic, BOM, wiring diagram              [v1]
 ```
@@ -43,10 +44,10 @@ eventually drift from the shipped logic. Making the core a config-less ESPHome c
 copy** compiled by both the host tests and the device build. Its `__init__.py` declares an empty
 schema and generates nothing.
 
-**Direct GPIO for the zones in v0, not the PCF8574.** The guard can only hard-close pins it writes
-itself; behind an I²C expander its raw sweep would cover the master valve and nothing else. On a
-four-zone bench that is the wrong trade for the layer whose entire job is proving fail-closed. The
-expander returns with the eight-zone build, where the deadman does the safety work anyway — which is
-what [§7](05-hardware.md#expander-or-direct-gpio--the-honest-answer) already concluded.
+**Direct GPIO for all eight zones.** The guard can only hard-close pins it writes itself, so every pin
+that can reach a relay coil is one it owns — which is what makes its raw sweep worth having in the
+case it exists for, where the main loop is hung. None of the eight wired pins is a strapping pin, so
+the GPIO12 hazard does not arise in the firmware. See the as-wired note in
+[§7](05-hardware.md#pin-map).
 
 ---

@@ -86,7 +86,14 @@ Schedule default_schedule(uint8_t zone_count) {
   s.seasonal_pct = 100;
   for (uint8_t z = 0; z < MAX_ZONES; z++) {
     s.zone_enabled[z] = z < s.zone_count;
-    s.zone_priority[z] = z;  // declaration order until the operator says otherwise
+    // Every zone at the SAME priority, not one priority each. Unique
+    // priorities would order the plan deterministically -- and would also
+    // switch rotation off entirely, because rotation happens *within* an
+    // equal-priority group. FR-4.5 exists so the same zone is not always last,
+    // and a default that quietly defeats it is worse than no default. Equal
+    // priority means the plan rotates from day one; an operator who wants a
+    // zone pinned first lowers its number.
+    s.zone_priority[z] = 0;
   }
   for (uint8_t p = 0; p < MAX_PROGRAMS; p++) {
     Program &prog = s.programs[p];

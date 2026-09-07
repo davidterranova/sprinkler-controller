@@ -10,7 +10,7 @@
 | **Switching** | **Mechanical relays**, not triacs or SSRs | At ~730 ops/zone/year against a 100 k rating, wear is irrelevant (~135 years), so the choice reduces to failure mode: **a relay fails open (fail-closed); a triac fails shorted (fail-water-on).** |
 | **Controller** | **The ESP32-WROOM DevKit already owned**, running ESPHome | D2 as revised. €0, and it is the *right* chip — the classic dual-core ESP32 has the PCNT hardware the flow meter needs, which the ESP32-C3 lacks entirely. |
 | **Relay bank** | **The relays already owned**, subject to the bench checks below | 9 channels needed (8 zones + master). Relay contacts fail *open*, which is the correct failure mode. |
-| **Relay drive** | **8 zones through a PCF8574 I²C expander; the master valve on a direct GPIO** | The expander removes the GPIO12 boot-brick hazard and halves the wiring — but on an *active-low* board its safety contribution is near zero, and it does **not** help on a CPU reset. The deadman does the safety work. Master on direct GPIO so an I²C lock-up still leaves the series element closable. |
+| **Relay drive** | **8 zones and the master valve, all on direct GPIO** | The guard can only hard-close pins it writes itself, so every pin that can reach a coil is one it owns. The deadman does the safety work. Master on its own module so no single board-level fault can weld a zone and the series element shut together. |
 | ~~**Interlock**~~ | ~~74HC238 1-of-8 decoder~~ — **dropped with the custom PCB (D2)** | Topologically elegant, but with a master valve in series two zones opening at once is a *pressure* problem, not a *safety* problem. It was the PCB's only unique contribution and did not justify ~40 h plus a decade of sole maintainership. Sequential execution is now enforced in firmware (`sprinkler`, which guarantees one `active_req_`) and bounded by the master valve. |
 | **Series element** | Master valve on a **separate GPIO and separate relay** | A hydraulic AND gate: watering requires two independent circuits to both work. Restores fail-closed even against a welded zone relay. |
 | **Deadman** | **AC-coupled charge pump** gating a global enable line | The highest value-per-euro item in the build (~€2) — see below. |
@@ -181,8 +181,8 @@ Each channel must have a **3-way** screw terminal (NO/COM/NC), not 2-way.
 **T3 — Polarity and floating-input behaviour. This is the single most important test.** Power the
 board with **nothing connected to the IN pins** and listen. Relays must stay silent. The dangerous
 variants that exist in the wild: **"high/low trigger selectable" boards** (a jumper or solder blob —
-if yours is set to high-trigger, everything inverts and a PCF8574's power-on-high state
-**energises all eight relays**); boards with a pull-*down* on the input; and non-opto boards.
+if yours is set to high-trigger, everything inverts and the board's own input pull-ups **energise every
+relay the instant power comes up**, before a line of firmware runs);
 Ten minutes with a 5 V supply and your ears.
 
 **T4 — 3.3 V drive adequacy. Marginal by construction, and a well-documented real failure.** With
@@ -192,8 +192,8 @@ VCC from 3.3 V**, which gives correct polarity in both states but only **~2.05 m
 against a 3.7 mA design point. Optocoupler CTR falls at low current *and* at low temperature, so a
 relay that works on a warm September bench can fail to pull in on a February morning. **Test cold**
 (a freezer bag) and sweep the logic rail down. If marginal, change R1 from 1 kΩ to **470 Ω** (≈4.4 mA)
-— **not** the 220 Ω some vendor notes suggest, because nine channels at 9.8 mA would push **88 mA
-through the PCF8574's ground pin against a ±100 mA absolute maximum**.
+— **not** the 220 Ω some vendor notes suggest: 470 Ω already restores the design margin, so the extra
+drive buys nothing and only heats the LED.
 
 Also: **remove the JD-VCC jumper.** With it fitted the board is *not* isolated despite the
 optocouplers. Feed JD-VCC + GND from 5 V, feed the input-header VCC from the logic rail, and **do not
@@ -214,40 +214,45 @@ fault)" row this document currently marks *not covered*, **partially covered for
 
 | Function | Pin |
 |---|---|
-| I²C SDA / SCL (DS3231 + PCF8574) | **GPIO21 / GPIO22** |
-| Zones 1–8 | **PCF8574 P0–P7** (addr 0x20), `inverted: true` |
-| **Master valve** | **GPIO17, direct** — deliberately not on the expander |
+| I²C SDA / SCL (DS3231) | **GPIO21 / GPIO22** |
+| **Zones 1–8** | **GPIO 32, 33, 25, 26, 27, 23, 19, 18** — `inverted: true` (active-low board) |
+| **Master valve** | **GPIO17** — on a *separate* relay module, not the 8-channel board |
 | **Deadman heartbeat** | **GPIO13** |
 | Flow meter pulse | **GPIO35** (input-only; needs an external 10 kΩ pull-up) |
 | Latching-timer "tripped" sense | GPIO34 (input-only, external pull-up) → HA CRITICAL |
 | Kill-switch sense / current sense (CT) | GPIO39 / GPIO36 (ADC1 — unaffected by Wi-Fi) |
-| **Spare** | 4, 14, 16, 18, 19, 23, 25, 26, 27, 32, 33 — **11 pins**, ample for the rain gauge (D11), status LED, physical button |
+| **Spare** | **4, 14, 16** — three output-capable pins, for the status LED, the physical button and the rain-gauge pulse input (D11). The four input-only pins are all allocated above. |
 
-All-direct fallback if you skip the expander: zones on **32, 33, 25, 26, 27, 23, 19, 18**, master 17,
-deadman 13. **Never use GPIO 0, 1, 2, 3, 5, 6–11, 12, 15.**
+**Never use GPIO 0, 1, 2, 3, 5, 6–11, 12, 15.**
+
+> ### ✅ As wired, 2026-09-06
+>
+> The eight relay inputs are on **32, 33, 25, 26, 27, 23, 19, 18**; master **17**; deadman **13**.
+> The firmware matches (`sprinkler.yaml`), and this is the as-built record for NFR-D4.
 
 > ⚠️ **GPIO12 is the one that must be respected absolutely.** Every relay `IN` line carries a 1 kΩ
 > pull-up. On GPIO12 (MTDI) that holds the strapping pin high at reset, which selects a **1.8 V
 > VDD_SDIO**, browns out the 3.3 V flash, and **the board will not boot or flash [V]**. Nine strong
 > pull-ups on nine ESP32 pins is nine chances to make this mistake — including a future you rewiring
-> the box with cold hands. **This is the strongest practical argument for the expander, and note that
-> it is not a safety argument at all.**
+> the box with cold hands. The firmware cannot make it — `irrigation_guard`'s config schema rejects
+> GPIO12 outright — so **it is purely a wiring hazard, and GPIO12 sits directly next to GPIO13, the
+> deadman, on the 30-pin header.** Label that pin in the enclosure.
 
-### Expander or direct GPIO — the honest answer
+### Direct GPIO, and what actually delivers P0
 
-**Use one PCF8574 for the 8 zones, and keep the master on a direct GPIO.** Both, deliberately.
+**Every relay input is on a GPIO the firmware owns directly.** The reason is `irrigation_guard`: it
+can only hard-close pins it writes itself, and its raw sweep is the layer whose entire job is proving
+fail-closed. A pin the guard cannot reach is a coil the guard cannot open — precisely in the case the
+sweep exists for, where the main loop is hung and nothing cooperative runs.
 
-But without inflation: **on this hardware the expander's contribution to P0 is close to zero.** The
-active-low board plus "all pins output-disabled during reset" already gives relay-OFF at cold boot,
-and the deadman already gates the rail. Critically, **the PCF8574 does not help in the case that
-actually matters** — on a CPU reset (R1) its output latch survives exactly as a GPIO does, because it
-has no reset pin either. **The deadman is what delivers P0, on every variant.** Take the expander for
-€2 because it eliminates the GPIO12 hazard, halves the wiring, and pairs elegantly with active-low
-(POR-high = safe = default at every layer). Skipping it is defensible; skipping the deadman is not.
+Be clear about what carries the guarantee, though: **the deadman delivers P0**, not the pin topology.
+The active-low board plus the verified *"pins are output-disabled during reset"* gives relay-OFF at
+cold boot, and the deadman gates the rail. Nothing in the output path has a reset pin, so **on a CPU
+reset (R1) an output that is ON stays ON** until something asserts OFF. That something is the deadman.
 
-**Keep the master on a direct GPIO** so the two halves of the AND gate fail independently: an I²C
-lock-up (a slave holding SDA low, a real event in a noisy 24 VAC box) still leaves the firmware able
-to close the master and stop all water. It also solves the 9th-channel problem for free.
+**Keep the master on its own relay module** so the two halves of the hydraulic AND gate fail
+independently — a shorted rail or a cracked PCB must not be able to weld a zone and the series element
+shut at the same time. It also solves the 9th-channel problem for free.
 
 **Do not drive the relays through a ULN2003** — that would invert the polarity into all-relays-on.
 
