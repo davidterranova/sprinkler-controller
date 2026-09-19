@@ -136,15 +136,16 @@ garden or stop it, without a phone.
 
 | ID | Requirement | Origin |
 |---|---|---|
-| FR-5.1 | Each zone **shall support a day predicate** composed of independent, composable filters: weekday mask, optional `every N days` with an epoch anchor, and an optional day-parity filter. | R5 |
+| FR-5.1 | Each zone **shall support a day predicate** composed of independent, composable filters: weekday mask, optional `every N days` with an epoch anchor, and an optional day-parity filter. *Confirmed and relocated by FR-5.11: the predicate belongs to the **zone**, which is what makes "frequency per week" a per-zone field (FR-12.6.3).* | R5, relocated FR-5.11 |
 | FR-5.2 | The day predicate for `every N days` **shall be measured from the last *actual* watering**, not the last scheduled one, so skips do not cause drift. | new |
 | FR-5.3 | Each zone **shall have a start time and a duration**. **No `latest_finish`, no window, no cap** — *D4: scheduling is fully delegated to the operator.* This resolves the three-way "range of time" ambiguity in the original requirement 5 by removing the construct entirely. | R5, **settled D4** |
 | FR-5.4 | Durations **shall be in minutes in v1.** Volume (litres) and depth (mm) targets are v2/v3 — so the core loop never depends on the least reliable component. | **challenges R5** |
 | FR-5.5 | A **volume target, when introduced, shall always be bounded by a hard maximum duration.** An under-reading flow meter with an unbounded volume target is the exact dangerous case. | **challenges R5** |
 | FR-5.6 | A **global seasonal adjustment percentage** shall scale all durations, clamped to a safe maximum (≤200 %). | new |
-| FR-5.7 | Multiple programs per day **shall be supported in v1**, not merely representable. *Upgraded by D5: the soil is heavy clay.* | **challenges R5**, upgraded D5 |
+| FR-5.7 | Multiple programs per day **shall be supported in v1**, not merely representable. *Upgraded by D5: the soil is heavy clay.* The count of programs a zone participates in **is** its "runs per day" (FR-12.6.4), which is a different quantity from its passes (FR-5.10). | **challenges R5**, upgraded D5 |
 | FR-5.10 | **Cycle-and-soak shall ship in v1** (D5). A zone's daily duration is delivered as **N passes of `duration/N`** rather than one continuous run, so water has time to infiltrate instead of running off. Clay infiltrates at roughly 3–6 mm/h *[E]* against a rotor precipitation rate of 10–12 mm/h, so a single long pass largely runs off. **Sequential execution provides the soak interval for free** — while zone 1 rests, zones 2–8 are watering — so this is *N passes over the zone list*, which is ESPHome `sprinkler`'s `repeat_number`. Little new firmware, and D4's removal of the window makes the extra wall-clock free. | **D5** |
 | FR-5.8 | Schedule storage **shall be schema-versioned and CRC-protected**, with dual-bank atomic writes. A firmware update must reject an incompatible config and alarm, never guess. | new |
+| FR-5.11 | The **day predicate shall be stored per zone, not per program.** A `Program` keeps its start time, enabled flag and pass count; the weekday mask and `every N days` move to the zone, and a zone runs in a program iff the program is enabled, the zone's predicate accepts the day, and the zone's minutes in that program are non-zero. *This is what lets the operator think in “this bed, twice a week” rather than in “which programs did I put this bed in”, and it is the model FR-12.6.2 requires.* **It changes the persisted layout: `SCHEMA_VERSION` shall be bumped and the old record refused rather than reinterpreted (FR-5.8).** | **owner, 2026-09-16** |
 | FR-5.9 | No schedule **start time** shall be permitted inside **01:30–03:30 local**, because the Europe/Paris DST transitions delete and duplicate that hour. Validation shall reject it. | new |
 
 ## FR-6 — Water metering
@@ -209,5 +210,97 @@ See [§11](10-alarms.md) for the full taxonomy and the [detection-to-acknowledge
 | FR-10.6 | Manual runs **shall ignore** rain-skip and the day predicate (a human overrode deliberately) but **shall respect** hold, zone-disabled, the interlock and the flow alarms — reporting a visible outcome rather than silently swallowing the press. | new |
 | FR-10.7 | A manual run **shall count toward all water accounting unconditionally**, and shall mark the day's scheduled run `satisfied_by_manual` **per zone** if it delivered ≥80 % of that zone's plan — preventing the most common irrigation mistake, double-watering on a hot day. *Confirmed by D10, scoped per zone rather than per cycle.* | **challenges R10**, confirmed D10 |
 | FR-10.8 | A **"test all zones for 2 minutes each" commissioning action** shall exist. | new |
+
+## FR-12 — The Home Assistant interface *(owner request, 2026-09-16)*
+
+**Intent:** Home Assistant is where the system is *observed* and where rules are *authored*
+(FR-2.1). It is never in the control path. This section specifies **what the interface must
+answer**, not what the dashboard looks like; the entity model and the card-by-card layout are in
+[§9](08-home-assistant.md#the-interface-specified).
+
+Three questions, and the whole interface is an answer to one of them: **what is it doing now**,
+**what did it do**, and **how do I change it**.
+
+> ⚠️ **The binding constraint on this section is the entity budget, not effort.** The device
+> publishes **91** HA-visible entities today against a **~130** ceiling that is an *enumeration*
+> limit, not a memory one ([§8](07-firmware.md#-the-real-entity-count-constraint-is-not-ram--it-is-the-listentities-dump)).
+> The read-outs below cost ~32 of the ~39 remaining. That is why FR-12.7 exists, why the averages
+> are HA-derived, and why the whole editing surface (FR-12.6) had to be moved off the device
+> (**D18**).
+
+### FR-12.1 — Global status
+
+| ID | Requirement | Origin |
+|---|---|---|
+| FR-12.1.1 | The interface **shall answer "is any valve open, and which one" without scrolling and without a tap**: watering yes/no, the active zone by **label**, its time remaining, and **the master valve as an item distinct from the zone** — a master open with no zone open is a fault, not a detail. | owner |
+| FR-12.1.2 | **Total water consumed** shall be shown as a lifetime figure owned by the device (monotonic, `total_increasing`, litres) alongside its day / month / year / season derivations (FR-6.3, FR-6.5). | owner |
+| FR-12.1.3 | **Average water per run** shall be shown globally as **litres per *cycle***, not per zone-run — at system level the meaningful unit is "what one watering costs". The per-zone-run average is FR-12.2.4. Both definitions shall be stated on the card, because an unlabelled average is a number nobody can act on. | owner |
+| FR-12.1.4 | A **run** counts toward an average **iff it delivered water** (`actual_seconds > 0`); outcomes `skipped_*` and `satisfied_by_manual` count toward the *skip* statistics (FR-12.5.2) and **never** toward the denominator. A cycle counts when at least one of its zone runs did. | new |
+| FR-12.1.5 | Averages **shall be derived in HA from two device-owned counters** (total litres, completed-run count) and **never accumulated in HA**. HA's recorder purges detail after ~10 days **[V]** and HA is routinely restarted; a mean computed from device counters is exact across any outage, one computed in HA is not. **Cost: zero device entities.** | new |
+| FR-12.1.6 | Every figure **shall carry its own staleness.** When the controller is `unavailable` the interface shall show the **last known value marked stale**, never a blank and never a zero. *"Zero litres today" and "I cannot see the controller" must never render the same* — the second is the one that needs a human. | new |
+
+### FR-12.2 — Per-zone status
+
+| ID | Requirement | Origin |
+|---|---|---|
+| FR-12.2.1 | Each zone **shall show a state**: `watering` / `next in queue` / `idle` / `disabled` / `retired` / `faulted`. **Derived in HA** from the active zone, the published plan and the zone-enabled flag — the device already publishes every input, so this costs **no device entities**. **This requires the device's alarm text to name the zone it concerns**; without that, `faulted` costs eight `binary_sensor`s the budget does not have. | owner |
+| FR-12.2.2 | Each zone **shall show its previous run**: when it started, **actual vs planned** minutes, litres delivered, and the outcome enum of FR-7.2 in plain language. | owner |
+| FR-12.2.3 | Each zone **shall show its next run**: projected start timestamp, planned minutes, planned litres, and the passes it will be split into (FR-5.10). Where a zone has no next run the interface **shall say why** (`disabled`, `retired`, `no enabled program`, `held until …`, `winter`), never show a blank. | owner |
+| FR-12.2.4 | Each zone **shall show its lifetime total** and its **average per run**, the latter derived per FR-12.1.5 from the zone's total and its completed-run count. | owner |
+| FR-12.2.5 | **Zones shall be identified by their label everywhere a human reads them**, and by their index everywhere a machine does. **Entity IDs shall remain index-based and immutable for the life of the installation** — renaming an ESPHome entity changes its `entity_id` and **silently breaks `utility_meter` sources and Energy-dashboard preferences** (finding #6 in [§9](08-home-assistant.md#things-in-the-live-instance-that-complicate-this)). The label is presentation; it is never an identifier. | new |
+| FR-12.2.6 | Where a zone's volume is estimated rather than metered (FR-6.6), **every figure derived from it shall be visibly labelled estimated**, including the averages. | new |
+
+### FR-12.3 — What happens next
+
+| ID | Requirement | Origin |
+|---|---|---|
+| FR-12.3.1 | The **resolved plan for the next cycle** (FR-4.4) shall be shown as an ordered list: position, zone label, **projected** start, minutes, passes, planned litres, and the cycle's projected total duration and volume. | owner |
+| FR-12.3.2 | The horizon **shall be at least 7 days**, so a weekly rhythm is visible as a rhythm. A zone on `every N days` with N > 7 shall still show its next occurrence beyond the horizon as a date. | owner |
+| FR-12.3.3 | Projected starts **shall be labelled as projections.** Only the first zone's start is a schedule; every later one is the sum of the durations before it, and a single zone running long moves all of them. Presenting a computed start as a commitment is how an interface lies. | new |
+| FR-12.3.4 | When nothing is planned, the interface **shall state the cause** — held until *T* and by whom (FR-8.7), winter, latched alarm, rain-skip with the gauge reading that caused it, clock untrusted, no enabled program — **never render an empty card**. *An empty schedule and a suppressed schedule look identical and mean opposite things.* | new |
+| FR-12.3.5 | Anything the operator can still do shall be reachable from this view: **run zone N for M minutes** (FR-10.1), hold, release, stop, and test-all-zones. | new |
+
+### FR-12.4 — Statistics for a single run
+
+| ID | Requirement | Origin |
+|---|---|---|
+| FR-12.4.1 | Any individual run **shall be inspectable**: zone, program, trigger source, requested vs actual start, planned vs actual duration, litres delivered, **deviation** (FR-7.6), passes completed, and outcome. | owner |
+| FR-12.4.2 | Two retention tiers **shall be stated on the view itself**, because they differ by three orders of magnitude: **full detail — including the flow trace through the run — for as long as the recorder holds it (~10 days [V])**; **summary rows forever**, from the append-only archive of FR-7.5 and from long-term statistics. A run older than the recorder window shall show its summary and **say the detail is gone**, not fail to render. | new |
+| FR-12.4.3 | The run list **shall be assembled from the device's ring buffer replayed on reconnect** (FR-7.5), so runs that happened while HA was down appear once HA returns. **Each run shall be recorded exactly once**, keyed on `(zone, program, start epoch)` — a reconnect replays records HA may already hold, and a duplicated run corrupts every average on the page. | new |
+| FR-12.4.4 | Runs that **did not** water shall appear in the list with their skip reason, not be omitted. **A gap in the record must be distinguishable from a deliberate skip** — that distinction is the whole point of FR-7. | new |
+
+### FR-12.5 — Statistics over a range
+
+| ID | Requirement | Origin |
+|---|---|---|
+| FR-12.5.1 | A **single period control shall drive every chart on the view** — `1 jour / 7 jours / 30 jours / 90 jours / 1 an`, reusing the `input_select` idiom already in `dashboard-piscine` **[V]**. Per-chart period pickers are prohibited: comparing two charts on different periods is the most common way to read a dashboard wrong. | owner |
+| FR-12.5.2 | Over the selected period the interface **shall report**: litres per zone and in total, run count, minutes watered, **average litres per run**, deviation against plan, and **skipped runs broken down by reason**. | owner |
+| FR-12.5.3 | Range statistics **shall be read from long-term statistics**, not raw history — `type: change` on the counters, `type: max` on plan levels — which mandates `state_class` on every figure that appears here (FR-7.3). Anything without one is invisible beyond ~10 days and shall not be charted. | new |
+| FR-12.5.4 | Zones **shall be comparable on one axis** for the same period, so "which bed drinks the most" is a glance and not an arithmetic exercise. | owner |
+| FR-12.5.5 | The **season** figure shall come from a fixed-period `statistic` card (FR-6.5), not a fourth `utility_meter` — tariff-less meters cannot be reset by service call **[V]**. | new |
+
+### FR-12.6 — Adding, configuring and deleting a zone
+
+| ID | Requirement | Origin |
+|---|---|---|
+| FR-12.6.1 | **Eight zone slots exist permanently in firmware. "Adding a zone" is claiming a slot, never creating an entity.** ESPHome's entity set is fixed at compile time, and the guard must own all eight pins from the first boot — *a pin that can reach a relay coil is a pin the safety layer must be able to close, planted or not.* The interface shall present slots as `in service` or `free`, and shall never imply that a ninth is possible. | new |
+| FR-12.6.2 | Putting a zone into service **shall require exactly four fields**: **label**, **frequency per week**, **runs per day**, **minutes per run**. Everything else — priority, passes, seasonal scaling, budget — **shall have a safe default** and shall not block commissioning. | **owner** |
+| FR-12.6.3 | **Frequency is a property of the zone.** The day predicate of FR-5.1 (weekday mask, optional `every N days`) **moves from the program to the zone**; programs retain the start time, the enabled flag and the pass count. A zone runs in program *P* on day *D* iff *P* is enabled, the **zone's** predicate accepts *D*, and the zone's minutes in *P* are non-zero. *See FR-5.11 — this is a persisted-schema change.* | **owner** |
+| FR-12.6.4 | **"Runs per day" means program starts, and the interface shall never conflate it with passes.** Two runs per day is two separate waterings hours apart; three passes is one watering delivered as three shorter ones to let clay infiltrate (FR-5.10). They have different purposes and opposite failure modes, and the words for them shall be distinct. | **owner** |
+| FR-12.6.5 | Before Apply, the editor **shall show what the four fields actually imply**: minutes per day, minutes per week, litres per week at the zone's nominal flow, and the projected finish time of each cycle the zone joins. *Three innocuous numbers multiply into an overwatered garden, and nothing on the current screen says so.* | new |
+| FR-12.6.6 | Validation **shall run before Apply and shall name the offending field**: per-day zone budget exceeded, duration above the cap (FR-5.3), start inside the DST band (FR-5.9), no day selected, schema mismatch. A rejected edit **shall leave the committed *and* the staged configuration untouched** (FR-2.2). | new |
+| FR-12.6.7 | **"Delete" means retire, not erase** (**D19**). A retired slot is disabled, holds zero minutes, is excluded from the resolved plan and hidden from the status views — **and keeps its lifetime total and its run history intact.** | **D19** |
+| FR-12.6.8 | **Resetting a zone's statistics shall be a separate, explicit, attributed action**, required only when a slot is re-used for a physically different bed. It is **the only sanctioned break in the monotonicity of a `total_increasing` counter**, and it shall be logged with who did it and when. | **D19** |
+| FR-12.6.9 | **The editing surface shall cost no device entities** (**D18**). The form is built from HA helpers; one structured `api:` action carries a complete zone configuration to the device, which validates it and **stages it in RAM**. Staging stays on the device, so **FR-2.2 (atomic Apply) and FR-2.3 (config-pending) are unchanged and remain device-authoritative.** | **D18** |
+| FR-12.6.10 | The form **shall be loadable from the device's committed configuration** in one action, and shall be loaded that way on first open. Home Assistant holds a *form*, never a second source of truth; an operator must always be able to discard local edits and see what the device actually believes. | **D18** |
+| FR-12.6.11 | Zone **labels shall be persisted on the device** as part of the schedule blob, so a controller that has never met this Home Assistant still describes itself correctly — to the next dashboard, to the logs, and to whoever inherits it. | new |
+
+### FR-12.7 — Budget, and what the interface may not do
+
+| ID | Requirement | Origin |
+|---|---|---|
+| FR-12.7.1 | **A figure shall be published by the device only when the device is the only thing that can know it** — lifetime totals, run counts, projected next runs, outcomes. Everything derivable from those (states, averages, comparisons, period aggregates) **shall be derived in Home Assistant**, where it costs nothing and cannot fail to enumerate. | new |
+| FR-12.7.2 | The v1 entity count **shall be tracked as a number in the repository**, not estimated. Budget: **91 today + 32 per-zone read-outs + 6 global − 3 v0 bench instruments** (*BENCH starve*, *BENCH hang*, *Simulation speed*, all removed before any valve is wired) **= 126**, and **128 once the D11 rain gauge lands**, against ~130. The working is in [§9](08-home-assistant.md#the-budget-and-the-fact-that-it-closes). | new |
+| FR-12.7.3 | **No HA-derived value shall ever re-enter the control path.** Derivations are for reading. A template sensor may describe a zone's state; nothing may act on one. | P0 |
 
 ---
