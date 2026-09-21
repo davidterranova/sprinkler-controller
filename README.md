@@ -60,7 +60,7 @@ deadman — not from firmware.
 | **[22. Wiring — the global interconnect](docs/22-wiring.md)** | **How every component connects to every other one, pin by pin.** The three electrical domains, the 24 VAC series chain and why each safety element sits in the common it does, the corrected deadman schematic, and the relay-board rules that are not obvious. |
 | [7b. Buy vs build (D2)](docs/06-buy-vs-build.md) | The weighted matrix, 10-year TCO, why every commercial controller was eliminated, and the reversibility argument. |
 | [8. Firmware architecture](docs/07-firmware.md) | ESPHome + custom C++ components, the state machine, persistence, timekeeping, crash recovery, testing. |
-| [9. Home Assistant integration](docs/08-home-assistant.md) | The live instance as it actually is, the entity model, where schedule truth lives, and the dashboard. |
+| [9. Home Assistant integration](docs/08-home-assistant.md) | The live instance as it actually is, the entity model, where schedule truth lives, **the interface specification and the entity budget that constrains it**, and the three dashboard views. |
 | [10. Water metering](docs/09-water-metering.md) | Sensor choice, pulse counting, and what the meter is really for (hint: safety, not billing). |
 | [11. Alarms](docs/10-alarms.md) | Severity taxonomy, what latches, and avoiding alarm fatigue. |
 
