@@ -2,6 +2,12 @@
 
 # 13. Proposed new capabilities
 
+> **When each of these lands** is fixed by the iteration plan in
+> [§15](14-roadmap.md#from-the-bench-to-the-garden--the-iterations): the v1 rows arrive across
+> Iterations 1–5 (the safety layer and the commissioning routine in Iteration 1, rain-skip, the freeze
+> interlock and the restriction window in Iteration 5), and v2 lands one capability per minor version
+> after a season of records has shown which matters most.
+
 ## v1 (safety and correctness — not optional)
 
 | Capability | Why |

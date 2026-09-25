@@ -69,7 +69,7 @@ deadman — not from firmware.
 | Document | What's in it |
 |---|---|
 | [13. Proposed new capabilities](docs/12-future-capabilities.md) | Rain skip, hydraulic profiling, cycle-and-soak, leak audit, freeze protection — by phase. |
-| [15. Roadmap](docs/14-roadmap.md) | v0 bench → v1 garden → v2/v3, with what is **explicitly out of scope for v1**. |
+| **[15. Roadmap](docs/14-roadmap.md)** | v0 bench → **five iterations to v1** — the MVP is Iteration 1, *first water, safely* — → v2/v3. Per iteration: the question it answers, the hardware / firmware / HA delta, exit criteria, the entity ledger, and what it deliberately leaves out. Plus what is **explicitly out of scope for v1**. |
 | [16. Risk register](docs/15-risk-register.md) | R1–R23, ranked. The three that would keep me awake are called out. |
 | [16. Verification backlog](docs/16-verification-backlog.md) | Every unverified claim, with the concrete check that resolves it. |
 | [17. Repository layout](docs/17-repository-layout.md) | Where code, tests, YAML and docs will live. |
